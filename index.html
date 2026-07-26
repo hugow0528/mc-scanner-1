@@ -1,0 +1,596 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>MC Answer Sheet Scanner</title>
+  <style>
+    :root { color-scheme: light dark; }
+    body { font-family: Arial, sans-serif; margin: 0; background: #10151c; color: #e8eef7; }
+    .wrap { max-width: 1100px; margin: 0 auto; padding: 20px; }
+    .grid { display: grid; gap: 14px; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); }
+    .card { background: #1b2430; border: 1px solid #2a3645; border-radius: 10px; padding: 14px; }
+    h1, h2, h3 { margin: 0 0 10px; }
+    label { display: block; margin: 8px 0 4px; font-size: 0.92rem; }
+    input, select, textarea, button { width: 100%; box-sizing: border-box; border-radius: 8px; border: 1px solid #3a4a5f; background: #0f141a; color: #e8eef7; padding: 8px; }
+    textarea { min-height: 120px; resize: vertical; }
+    button { cursor: pointer; background: #2f6feb; border-color: #2f6feb; font-weight: 600; margin-top: 8px; }
+    button.secondary { background: #263344; border-color: #3a4a5f; }
+    .row { display: flex; gap: 8px; flex-wrap: wrap; }
+    .row > * { flex: 1; min-width: 120px; }
+    .small { font-size: 0.85rem; opacity: 0.9; }
+    #previewWrap { display: grid; gap: 12px; grid-template-columns: 1fr 1fr; }
+    canvas { width: 100%; border: 1px solid #3a4a5f; border-radius: 8px; background: #fff; }
+    #results pre { white-space: pre-wrap; word-break: break-word; margin: 0; }
+    .warn { color: #ffcf66; }
+    .bad { color: #ff8a8a; }
+    .ok { color: #8fe38f; }
+    #templatePreview { background: #fff; color: #000; overflow: auto; max-height: 620px; border-radius: 8px; }
+    .template-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+    @media print {
+      body { background: #fff; color: #000; }
+      .no-print { display: none !important; }
+      #printArea { display: block !important; }
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>All-in-One MC Scanner + Templates</h1>
+    <p class="small">Upload a photo/scan of a printed template from this page, detect answers in-browser, mark against key, and export results.</p>
+
+    <div class="grid no-print">
+      <section class="card">
+        <h2>1) Setup</h2>
+        <label for="templateType">Template</label>
+        <select id="templateType">
+          <option value="A">Template A (50 Q, A-D)</option>
+          <option value="B">Template B (60 Q, A-D)</option>
+          <option value="C">Template C (40 Q, A-E)</option>
+        </select>
+        <div class="row">
+          <div>
+            <label for="questionCount">Questions</label>
+            <input id="questionCount" type="number" min="1" value="50" />
+          </div>
+          <div>
+            <label for="optionCount">Options</label>
+            <input id="optionCount" type="number" min="2" max="8" value="4" />
+          </div>
+        </div>
+        <label for="studentName">Student Name (optional)</label>
+        <input id="studentName" type="text" placeholder="e.g. Chan Tai Man" />
+        <label for="sheetInput">Answer Sheet Image</label>
+        <input id="sheetInput" type="file" accept="image/*" />
+      </section>
+
+      <section class="card">
+        <h2>2) Answer Key</h2>
+        <p class="small">Format: one per line (<code>1:A</code>) or CSV row (<code>A,B,C,D...</code>).</p>
+        <textarea id="answerKey" placeholder="1:A&#10;2:C&#10;3:D"></textarea>
+        <div class="row">
+          <button id="loadDemoKey" class="secondary">Load Demo Key</button>
+          <button id="scanBtn">Scan & Mark</button>
+        </div>
+      </section>
+    </div>
+
+    <section class="card no-print">
+      <h2>3) Processing Preview</h2>
+      <div id="previewWrap">
+        <div><h3>Uploaded</h3><canvas id="sourceCanvas" width="600" height="840"></canvas></div>
+        <div><h3>Aligned / Annotated</h3><canvas id="workCanvas" width="800" height="1131"></canvas></div>
+      </div>
+    </section>
+
+    <section id="results" class="card no-print">
+      <h2>4) Result</h2>
+      <pre>Run scan to see results.</pre>
+      <div class="template-actions">
+        <button id="exportJson" class="secondary">Export JSON</button>
+        <button id="exportCsv" class="secondary">Export CSV</button>
+      </div>
+    </section>
+
+    <section class="card no-print">
+      <h2>5) Printable Templates</h2>
+      <div class="template-actions">
+        <button id="renderTemplateA" class="secondary">Preview Template A</button>
+        <button id="renderTemplateB" class="secondary">Preview Template B</button>
+        <button id="renderTemplateC" class="secondary">Preview Template C</button>
+        <button id="printTemplate">Print Previewed Template</button>
+      </div>
+      <div id="templatePreview"></div>
+      <div class="small">Design: A4 portrait, black corner markers, bubble diameter 6.5mm, spacing 11mm.</div>
+    </section>
+  </div>
+
+  <div id="printArea" style="display:none;"></div>
+
+  <script>
+    const TEMPLATE_PRESETS = {
+      A: { questions: 50, options: ["A","B","C","D"], columns: 2, rowsPerColumn: 25, edgeMarkers: false, title: "Template A (50 Questions, A-D)" },
+      B: { questions: 60, options: ["A","B","C","D"], columns: 3, rowsPerColumn: 20, edgeMarkers: true, title: "Template B (60 Questions, A-D)" },
+      C: { questions: 40, options: ["A","B","C","D","E"], columns: 2, rowsPerColumn: 20, edgeMarkers: false, title: "Template C (40 Questions, A-E)" }
+    };
+
+    const el = {
+      templateType: document.getElementById("templateType"),
+      questionCount: document.getElementById("questionCount"),
+      optionCount: document.getElementById("optionCount"),
+      answerKey: document.getElementById("answerKey"),
+      sheetInput: document.getElementById("sheetInput"),
+      sourceCanvas: document.getElementById("sourceCanvas"),
+      workCanvas: document.getElementById("workCanvas"),
+      results: document.querySelector("#results pre"),
+      studentName: document.getElementById("studentName"),
+      templatePreview: document.getElementById("templatePreview"),
+      printArea: document.getElementById("printArea")
+    };
+
+    let latestResult = null;
+    let uploadedImage = null;
+    const srcCtx = el.sourceCanvas.getContext("2d", { willReadFrequently: true });
+    const workCtx = el.workCanvas.getContext("2d", { willReadFrequently: true });
+
+    function syncPreset() {
+      const preset = TEMPLATE_PRESETS[el.templateType.value];
+      el.questionCount.value = preset.questions;
+      el.optionCount.value = preset.options.length;
+    }
+    el.templateType.addEventListener("change", syncPreset);
+    syncPreset();
+
+    document.getElementById("loadDemoKey").addEventListener("click", () => {
+      const q = Number(el.questionCount.value);
+      const letters = "ABCDEFGHIJKLMNOPQRSTUVWXYZ".slice(0, Number(el.optionCount.value)).split("");
+      const lines = Array.from({ length: q }, (_, i) => `${i + 1}:${letters[i % letters.length]}`);
+      el.answerKey.value = lines.join("\n");
+    });
+
+    el.sheetInput.addEventListener("change", async (e) => {
+      const file = e.target.files?.[0];
+      if (!file) return;
+      const img = await fileToImage(file);
+      uploadedImage = img;
+      drawContain(srcCtx, img, el.sourceCanvas.width, el.sourceCanvas.height);
+    });
+
+    document.getElementById("scanBtn").addEventListener("click", () => {
+      if (!uploadedImage) return setResult("Please upload an answer sheet image first.", "warn");
+      const questions = Number(el.questionCount.value);
+      const optionCount = Number(el.optionCount.value);
+      const options = "ABCDEFGHIJKLMNOPQRSTUVWXYZ".slice(0, optionCount).split("");
+      const keyMap = parseAnswerKey(el.answerKey.value, questions, options);
+      if (!keyMap.ok) return setResult(keyMap.error, "bad");
+
+      const aligned = alignSheet(uploadedImage);
+      workCtx.clearRect(0, 0, el.workCanvas.width, el.workCanvas.height);
+      workCtx.putImageData(aligned.imageData, 0, 0);
+
+      const preset = buildDynamicPreset({ questions, options, type: el.templateType.value });
+      const scan = scanBubbles(aligned.imageData, preset);
+      drawOverlay(workCtx, preset, scan);
+
+      const marking = markAnswers(scan.answers, keyMap.map, questions);
+      const quality = qualityWarnings(aligned.imageData, scan.ambiguousCount, questions);
+      latestResult = {
+        timestamp: new Date().toISOString(),
+        studentName: el.studentName.value || "",
+        template: el.templateType.value,
+        questions,
+        options,
+        detected: scan.answers,
+        ambiguousQuestions: scan.ambiguousQuestions,
+        ...marking,
+        ...quality
+      };
+      renderResult(latestResult);
+    });
+
+    document.getElementById("exportJson").addEventListener("click", () => {
+      if (!latestResult) return;
+      downloadText(`mc-result-${Date.now()}.json`, JSON.stringify(latestResult, null, 2), "application/json");
+    });
+    document.getElementById("exportCsv").addEventListener("click", () => {
+      if (!latestResult) return;
+      const rows = [
+        ["studentName","template","score","total","percent","wrongQuestions","ambiguousQuestions","warnings"],
+        [
+          latestResult.studentName,
+          latestResult.template,
+          latestResult.correct,
+          latestResult.total,
+          latestResult.percent,
+          latestResult.wrong.map(w => `${w.q}:${w.expected}/${w.actual || "-"}`).join(" "),
+          latestResult.ambiguousQuestions.join(" "),
+          latestResult.warnings.join(" | ")
+        ]
+      ];
+      downloadText(`mc-result-${Date.now()}.csv`, rows.map(r => r.map(csvEscape).join(",")).join("\n"), "text/csv");
+    });
+
+    ["A","B","C"].forEach(key => {
+      document.getElementById(`renderTemplate${key}`).addEventListener("click", () => renderTemplate(key));
+    });
+    document.getElementById("printTemplate").addEventListener("click", () => window.print());
+
+    function renderTemplate(type) {
+      const p = TEMPLATE_PRESETS[type];
+      const svg = templateSVG(p, type);
+      el.templatePreview.innerHTML = svg;
+      el.printArea.innerHTML = svg;
+    }
+    renderTemplate("A");
+
+    function fileToImage(file) {
+      return new Promise((resolve, reject) => {
+        const url = URL.createObjectURL(file);
+        const img = new Image();
+        img.onload = () => { URL.revokeObjectURL(url); resolve(img); };
+        img.onerror = reject;
+        img.src = url;
+      });
+    }
+
+    function drawContain(ctx, img, w, h) {
+      ctx.clearRect(0, 0, w, h);
+      const s = Math.min(w / img.width, h / img.height);
+      const dw = img.width * s, dh = img.height * s;
+      const x = (w - dw) / 2, y = (h - dh) / 2;
+      ctx.drawImage(img, x, y, dw, dh);
+    }
+
+    function parseAnswerKey(text, totalQ, options) {
+      const map = {};
+      const clean = text.trim();
+      if (!clean) return { ok: false, error: "Answer key is empty." };
+      if (clean.includes("\n") || clean.includes(":")) {
+        const lines = clean.split(/\r?\n/).map(s => s.trim()).filter(Boolean);
+        for (const line of lines) {
+          const [qRaw, aRaw] = line.split(":").map(s => (s || "").trim());
+          const q = Number(qRaw);
+          const a = (aRaw || "").toUpperCase();
+          if (!Number.isInteger(q) || q < 1 || q > totalQ) return { ok: false, error: `Invalid question number in key: ${line}` };
+          if (!options.includes(a)) return { ok: false, error: `Invalid option in key: ${line}` };
+          map[q] = a;
+        }
+      } else {
+        const parts = clean.split(",").map(s => s.trim().toUpperCase()).filter(Boolean);
+        for (let i = 0; i < Math.min(totalQ, parts.length); i++) {
+          if (!options.includes(parts[i])) return { ok: false, error: `Invalid option at CSV position ${i + 1}` };
+          map[i + 1] = parts[i];
+        }
+      }
+      for (let q = 1; q <= totalQ; q++) if (!map[q]) return { ok: false, error: `Missing answer key for question ${q}` };
+      return { ok: true, map };
+    }
+
+    function buildDynamicPreset({ questions, options, type }) {
+      const base = TEMPLATE_PRESETS[type] || TEMPLATE_PRESETS.A;
+      return { questions, options, columns: base.columns, rowsPerColumn: Math.ceil(questions / base.columns) };
+    }
+
+    function alignSheet(img) {
+      const temp = document.createElement("canvas");
+      temp.width = img.width; temp.height = img.height;
+      const tctx = temp.getContext("2d", { willReadFrequently: true });
+      tctx.drawImage(img, 0, 0);
+      const src = tctx.getImageData(0, 0, img.width, img.height);
+      const corners = detectCornerMarkers(src);
+
+      const outW = el.workCanvas.width, outH = el.workCanvas.height;
+      const dstCorners = [
+        { x: 30, y: 30 },
+        { x: outW - 30, y: 30 },
+        { x: outW - 30, y: outH - 30 },
+        { x: 30, y: outH - 30 }
+      ];
+      const H = homographyFrom4Points(dstCorners, corners);
+      const out = warpByHomography(src, outW, outH, H);
+      return { imageData: out, corners };
+    }
+
+    function detectCornerMarkers(imgData) {
+      const { width, height, data } = imgData;
+      const boxW = Math.floor(width * 0.22), boxH = Math.floor(height * 0.22);
+      const boxes = [
+        [0, 0, boxW, boxH],
+        [width - boxW, 0, boxW, boxH],
+        [width - boxW, height - boxH, boxW, boxH],
+        [0, height - boxH, boxW, boxH]
+      ];
+      return boxes.map(([x0, y0, w, h]) => {
+        let sumX = 0, sumY = 0, cnt = 0;
+        for (let y = y0; y < y0 + h; y++) {
+          for (let x = x0; x < x0 + w; x++) {
+            const i = (y * width + x) * 4;
+            const gray = data[i] * 0.299 + data[i + 1] * 0.587 + data[i + 2] * 0.114;
+            if (gray < 80) { sumX += x; sumY += y; cnt++; }
+          }
+        }
+        if (!cnt) {
+          return { x: x0 + w / 2, y: y0 + h / 2 };
+        }
+        return { x: sumX / cnt, y: sumY / cnt };
+      });
+    }
+
+    function homographyFrom4Points(srcPts, dstPts) {
+      const A = [];
+      const b = [];
+      for (let i = 0; i < 4; i++) {
+        const { x, y } = srcPts[i];
+        const u = dstPts[i].x, v = dstPts[i].y;
+        A.push([x, y, 1, 0, 0, 0, -u * x, -u * y]); b.push(u);
+        A.push([0, 0, 0, x, y, 1, -v * x, -v * y]); b.push(v);
+      }
+      const h = solveLinear8(A, b);
+      return [h[0], h[1], h[2], h[3], h[4], h[5], h[6], h[7], 1];
+    }
+
+    function solveLinear8(A, b) {
+      const n = 8;
+      const M = A.map((row, i) => [...row, b[i]]);
+      for (let c = 0; c < n; c++) {
+        let maxR = c;
+        for (let r = c + 1; r < n; r++) if (Math.abs(M[r][c]) > Math.abs(M[maxR][c])) maxR = r;
+        [M[c], M[maxR]] = [M[maxR], M[c]];
+        const piv = M[c][c] || 1e-12;
+        for (let k = c; k <= n; k++) M[c][k] /= piv;
+        for (let r = 0; r < n; r++) {
+          if (r === c) continue;
+          const f = M[r][c];
+          for (let k = c; k <= n; k++) M[r][k] -= f * M[c][k];
+        }
+      }
+      return M.map(row => row[n]);
+    }
+
+    function warpByHomography(src, outW, outH, H) {
+      const dst = new ImageData(outW, outH);
+      const s = src.data;
+      const d = dst.data;
+      const sw = src.width, sh = src.height;
+      for (let y = 0; y < outH; y++) {
+        for (let x = 0; x < outW; x++) {
+          const w = H[6] * x + H[7] * y + H[8];
+          const sx = (H[0] * x + H[1] * y + H[2]) / w;
+          const sy = (H[3] * x + H[4] * y + H[5]) / w;
+          const di = (y * outW + x) * 4;
+          if (sx < 0 || sy < 0 || sx >= sw - 1 || sy >= sh - 1) {
+            d[di] = d[di + 1] = d[di + 2] = 255; d[di + 3] = 255;
+            continue;
+          }
+          const x0 = Math.floor(sx), y0 = Math.floor(sy);
+          const x1 = x0 + 1, y1 = y0 + 1;
+          const fx = sx - x0, fy = sy - y0;
+          const idx = (xx, yy) => (yy * sw + xx) * 4;
+          for (let c = 0; c < 3; c++) {
+            const p00 = s[idx(x0, y0) + c], p10 = s[idx(x1, y0) + c];
+            const p01 = s[idx(x0, y1) + c], p11 = s[idx(x1, y1) + c];
+            const val = (1 - fx) * (1 - fy) * p00 + fx * (1 - fy) * p10 + (1 - fx) * fy * p01 + fx * fy * p11;
+            d[di + c] = val;
+          }
+          d[di + 3] = 255;
+        }
+      }
+      return dst;
+    }
+
+    function scanBubbles(imgData, preset) {
+      const { width, height, data } = imgData;
+      const answers = {};
+      const ambiguousQuestions = [];
+      const bubbleMap = [];
+      const left = width * 0.08, top = height * 0.18;
+      const usableW = width * 0.84, usableH = height * 0.73;
+      const colW = usableW / preset.columns;
+      const r = Math.max(6, Math.min(width, height) * 0.0068);
+      let ambiguousCount = 0;
+
+      for (let q = 1; q <= preset.questions; q++) {
+        const col = Math.floor((q - 1) / preset.rowsPerColumn);
+        const row = (q - 1) % preset.rowsPerColumn;
+        const rowY = top + (row + 0.5) * (usableH / preset.rowsPerColumn);
+        const rowX = left + col * colW;
+        const optionStartX = rowX + colW * 0.34;
+        const optionSpan = colW * (preset.options.length > 4 ? 0.56 : 0.48);
+        const darkness = [];
+        const points = [];
+        for (let i = 0; i < preset.options.length; i++) {
+          const cx = optionStartX + (i + 0.5) * (optionSpan / preset.options.length);
+          const cy = rowY;
+          points.push({ cx, cy, label: preset.options[i] });
+          darkness.push(circleDarkness(data, width, height, cx, cy, r));
+        }
+        const sorted = [...darkness].map((v, i) => ({ v, i })).sort((a, b) => b.v - a.v);
+        const strong = sorted[0].v > 0.25;
+        const separated = (sorted[0].v - sorted[1].v) > 0.06;
+        const detected = (strong && separated) ? preset.options[sorted[0].i] : "";
+        answers[q] = detected;
+        if (!detected) { ambiguousQuestions.push(q); ambiguousCount++; }
+        bubbleMap.push({ q, points, detected, darkness });
+      }
+
+      return { answers, ambiguousQuestions, ambiguousCount, bubbleMap };
+    }
+
+    function circleDarkness(data, w, h, cx, cy, r) {
+      let total = 0, count = 0;
+      const x0 = Math.max(0, Math.floor(cx - r)), x1 = Math.min(w - 1, Math.ceil(cx + r));
+      const y0 = Math.max(0, Math.floor(cy - r)), y1 = Math.min(h - 1, Math.ceil(cy + r));
+      const rr = r * r;
+      for (let y = y0; y <= y1; y++) {
+        for (let x = x0; x <= x1; x++) {
+          const dx = x - cx, dy = y - cy;
+          if (dx * dx + dy * dy > rr) continue;
+          const i = (y * w + x) * 4;
+          const gray = data[i] * 0.299 + data[i + 1] * 0.587 + data[i + 2] * 0.114;
+          total += gray; count++;
+        }
+      }
+      const avg = count ? total / count : 255;
+      return 1 - avg / 255;
+    }
+
+    function drawOverlay(ctx, preset, scan) {
+      ctx.save();
+      ctx.lineWidth = 2;
+      ctx.font = "12px Arial";
+      scan.bubbleMap.forEach(row => {
+        row.points.forEach((p, i) => {
+          const isDetected = row.detected === p.label;
+          ctx.strokeStyle = isDetected ? "#00cc66" : "#0077ff";
+          ctx.beginPath();
+          ctx.arc(p.cx, p.cy, 7, 0, Math.PI * 2);
+          ctx.stroke();
+          if (isDetected) {
+            ctx.fillStyle = "rgba(0, 204, 102, 0.28)";
+            ctx.beginPath();
+            ctx.arc(p.cx, p.cy, 5, 0, Math.PI * 2);
+            ctx.fill();
+          }
+          if (i === 0) {
+            ctx.fillStyle = "#111";
+            ctx.fillText(String(row.q), p.cx - 38, p.cy + 4);
+          }
+        });
+      });
+      ctx.restore();
+    }
+
+    function markAnswers(detected, key, totalQ) {
+      const wrong = [];
+      let correct = 0;
+      for (let q = 1; q <= totalQ; q++) {
+        const actual = detected[q] || "";
+        const expected = key[q];
+        if (actual === expected) correct++;
+        else wrong.push({ q, expected, actual });
+      }
+      return { correct, total: totalQ, percent: ((correct / totalQ) * 100).toFixed(2), wrong };
+    }
+
+    function qualityWarnings(imageData, ambiguousCount, totalQ) {
+      const warnings = [];
+      const blur = laplacianVariance(imageData);
+      const contrast = contrastRange(imageData);
+      if (blur < 45) warnings.push("Image appears blurry. Retake with better focus.");
+      if (contrast < 95) warnings.push("Low contrast/lighting detected. Improve lighting.");
+      if (ambiguousCount > Math.max(2, totalQ * 0.08)) warnings.push("Many ambiguous bubbles. Check erasures and shading.");
+      return { warnings };
+    }
+
+    function laplacianVariance(img) {
+      const { width, height, data } = img;
+      let mean = 0, n = 0;
+      const vals = [];
+      for (let y = 1; y < height - 1; y += 2) {
+        for (let x = 1; x < width - 1; x += 2) {
+          const g = (xx, yy) => {
+            const i = (yy * width + xx) * 4;
+            return data[i] * 0.299 + data[i + 1] * 0.587 + data[i + 2] * 0.114;
+          };
+          const v = -4 * g(x, y) + g(x - 1, y) + g(x + 1, y) + g(x, y - 1) + g(x, y + 1);
+          vals.push(v); mean += v; n++;
+        }
+      }
+      mean /= Math.max(1, n);
+      let variance = 0;
+      for (const v of vals) variance += (v - mean) ** 2;
+      return variance / Math.max(1, n);
+    }
+
+    function contrastRange(img) {
+      const { data } = img;
+      let min = 255, max = 0;
+      for (let i = 0; i < data.length; i += 16) {
+        const g = data[i] * 0.299 + data[i + 1] * 0.587 + data[i + 2] * 0.114;
+        if (g < min) min = g;
+        if (g > max) max = g;
+      }
+      return max - min;
+    }
+
+    function renderResult(res) {
+      const warningText = res.warnings.length ? `\nWarnings:\n- ${res.warnings.join("\n- ")}` : "\nWarnings: none";
+      const wrongText = res.wrong.length ? res.wrong.map(w => `Q${w.q}: expected ${w.expected}, got ${w.actual || "-"}`).join("\n") : "None";
+      setResult(
+        `Student: ${res.studentName || "(not set)"}\nTemplate: ${res.template}\nScore: ${res.correct}/${res.total} (${res.percent}%)\nAmbiguous questions: ${res.ambiguousQuestions.length ? res.ambiguousQuestions.join(", ") : "None"}\n\nWrong answers:\n${wrongText}${warningText}`,
+        res.wrong.length ? "warn" : "ok"
+      );
+    }
+
+    function setResult(text, cls) {
+      el.results.className = cls || "";
+      el.results.textContent = text;
+    }
+
+    function downloadText(filename, text, mime) {
+      const blob = new Blob([text], { type: mime });
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = filename;
+      a.click();
+      URL.revokeObjectURL(a.href);
+    }
+
+    function csvEscape(value) {
+      const s = String(value ?? "");
+      return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+    }
+
+    function templateSVG(preset, type) {
+      const w = 794, h = 1123;
+      const options = preset.options;
+      const m = { l: 48, r: 48, t: 70, b: 50 };
+      const headerH = 130;
+      const contentTop = m.t + headerH;
+      const usableW = w - m.l - m.r;
+      const usableH = h - contentTop - m.b;
+      const colW = usableW / preset.columns;
+      const rows = preset.rowsPerColumn;
+      const bubbleR = 9;
+      const optionBand = options.length > 4 ? 0.58 : 0.5;
+
+      const marks = [
+        marker(22, 22), marker(w - 22, 22), marker(w - 22, h - 22), marker(22, h - 22)
+      ];
+      if (preset.edgeMarkers) marks.push(marker(22, h / 2), marker(w - 22, h / 2));
+
+      let rowsSvg = "";
+      for (let q = 1; q <= preset.questions; q++) {
+        const col = Math.floor((q - 1) / rows);
+        const row = (q - 1) % rows;
+        const y = contentTop + (row + 0.5) * (usableH / rows);
+        const x0 = m.l + col * colW;
+        const ox = x0 + colW * 0.34;
+        const span = colW * optionBand;
+        rowsSvg += `<text x="${x0 + 4}" y="${y + 4}" font-size="12" font-family="Arial">${q}</text>`;
+        for (let i = 0; i < options.length; i++) {
+          const cx = ox + (i + 0.5) * (span / options.length);
+          rowsSvg += `<circle cx="${cx}" cy="${y}" r="${bubbleR}" fill="white" stroke="black" stroke-width="1.3"/>`;
+          rowsSvg += `<text x="${cx - 3}" y="${y - 13}" font-size="10" font-family="Arial">${options[i]}</text>`;
+        }
+      }
+
+      return `
+<svg xmlns="http://www.w3.org/2000/svg" width="210mm" height="297mm" viewBox="0 0 ${w} ${h}">
+  <rect x="0" y="0" width="${w}" height="${h}" fill="white"/>
+  ${marks.join("")}
+  <text x="${m.l}" y="${m.t}" font-size="18" font-family="Arial" font-weight="bold">${preset.title}</text>
+  <text x="${m.l}" y="${m.t + 28}" font-size="12" font-family="Arial">Name: ____________________   Candidate No.: ____________________</text>
+  <text x="${m.l}" y="${m.t + 48}" font-size="12" font-family="Arial">Class: ____________________   Date: ____________________   Subject: ____________________</text>
+  <line x1="${m.l}" y1="${contentTop - 10}" x2="${w - m.r}" y2="${contentTop - 10}" stroke="#999"/>
+  ${rowsSvg}
+  <text x="${m.l}" y="${h - 18}" font-size="10" font-family="Arial">Fill bubbles darkly. Avoid ticks/crosses. Keep sheet flat for scanning.</text>
+</svg>`;
+    }
+
+    function marker(x, y) {
+      return `<rect x="${x - 8}" y="${y - 8}" width="16" height="16" fill="black"/>`;
+    }
+  </script>
+</body>
+</html>
