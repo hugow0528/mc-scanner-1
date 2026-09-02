@@ -1,0 +1,577 @@
+<!DOCTYPE html>
+<html lang="zh-HK">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CCC KEI YUEN COLLEGE - 終極改卷系統</title>
+    <!-- 引入 JSZip 用於打包匯出 -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+    <style>
+        /* Wabi-Sabi Minimalist UI */
+        :root { 
+            --bg: #272623; --surface: #33312E; --text-main: #E3DFD5; --text-dim: #A6A297; 
+            --sage: #798870; --clay: #B56B5C; --slate: #6C7A89; --ochre: #C09A65; --border: #4A4843;
+        }
+        * { box-sizing: border-box; }
+        body { font-family: 'Helvetica Neue', Arial, sans-serif; background-color: var(--bg); color: var(--text-main); margin: 0; padding: 20px; line-height: 1.6; font-weight: 300; }
+        
+        .container { max-width: 1400px; margin: 0 auto; }
+        .header { text-align: center; margin-bottom: 30px; }
+        .header h1 { color: var(--text-main); margin: 0 0 5px 0; font-size: 2.2rem; font-weight: 400; letter-spacing: 2px; }
+        .header p { color: var(--text-dim); margin: 0; font-size: 1rem; }
+        
+        .grid-layout { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 25px; margin-bottom: 30px; }
+        .panel { background: var(--surface); padding: 25px; border-radius: 12px; border: 1px solid var(--border); box-shadow: 0 8px 24px rgba(0,0,0,0.15); transition: transform 0.3s ease; }
+        .panel:hover { transform: translateY(-2px); }
+        .panel h3 { margin-top: 0; color: var(--text-main); font-weight: 400; font-size: 1.3rem; border-bottom: 1px solid var(--border); padding-bottom: 12px; margin-bottom: 15px; }
+        
+        label { font-size: 0.9rem; color: var(--text-dim); display: block; margin: 12px 0 6px 0; }
+        input[type="text"], input[type="number"], input[type="file"], textarea { 
+            width: 100%; padding: 12px; border-radius: 8px; border: 1px solid var(--border); background: var(--bg); color: var(--text-main); font-family: inherit; font-size: 1rem; transition: all 0.3s ease; 
+        }
+        input:focus, textarea:focus { border-color: var(--sage); outline: none; box-shadow: 0 0 0 2px rgba(121,136,112,0.3); }
+        textarea { height: 90px; resize: vertical; }
+        
+        .btn { display: inline-flex; align-items: center; justify-content: center; gap: 8px; width: 100%; padding: 14px; border: none; border-radius: 8px; font-weight: 500; font-size: 1rem; cursor: pointer; transition: all 0.2s ease; margin-top: 15px; color: #fff; }
+        .btn:hover { filter: brightness(1.1); box-shadow: 0 4px 12px rgba(0,0,0,0.2); transform: translateY(-1px); }
+        .btn-sage { background-color: var(--sage); }
+        .btn-clay { background-color: var(--clay); }
+        .btn-slate { background-color: var(--slate); }
+        .btn-ochre { background-color: var(--ochre); color: #222; font-weight: bold; }
+        .btn-outline { background-color: transparent; border: 1px solid var(--text-dim); color: var(--text-main); }
+        .btn-outline:hover { background-color: var(--text-dim); color: var(--bg); }
+
+        .radio-group { display: flex; gap: 15px; background: var(--bg); padding: 12px; border-radius: 8px; border: 1px solid var(--border); }
+        .radio-group label { margin: 0; cursor: pointer; display: flex; align-items: center; gap: 8px; color: var(--text-main); }
+        .radio-group input { transform: scale(1.2); accent-color: var(--sage); }
+
+        #results-box { text-align: center; margin: 20px 0; padding: 30px 20px; background: var(--surface); border-radius: 12px; border: 1px dashed var(--border); }
+        #score-display { font-size: 3.5rem; font-weight: 300; color: var(--ochre); line-height: 1; margin-bottom: 10px; }
+        #status { font-weight: 400; color: var(--sage); font-size: 1.1rem; }
+
+        .table-responsive { overflow-x: auto; margin-top: 20px; }
+        .data-table { width: 100%; border-collapse: collapse; min-width: 600px; font-size: 0.95rem; }
+        .data-table th, .data-table td { border-bottom: 1px solid var(--border); padding: 12px; text-align: center; }
+        .data-table th { color: var(--text-dim); font-weight: 500; text-transform: uppercase; letter-spacing: 1px; font-size: 0.85rem; }
+        
+        canvas { max-width: 100%; height: auto; border-radius: 10px; display: block; margin: 20px auto; background: #fff; box-shadow: 0 8px 30px rgba(0,0,0,0.2); }
+        
+        .flex-row { display: flex; gap: 15px; flex-wrap: wrap; }
+        .flex-row .btn { flex: 1; min-width: 200px; margin-top: 10px; }
+
+        @media print {
+            body { background: #fff; padding: 0; margin: 0; }
+            .container > * { display: none !important; }
+            #canvas { display: block !important; border: none; margin: 0; width: 100vw; max-width: none; box-shadow: none; border-radius: 0; }
+            @page { size: A4 portrait; margin: 0; }
+        }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <div class="header">
+        <h1>CCC KEI YUEN COLLEGE</h1>
+        <p>Advanced OMR Auto-Grader System</p>
+    </div>
+    
+    <div class="grid-layout">
+        <!-- 模塊 1: 生成 -->
+        <div class="panel">
+            <h3>1. Paper Setup</h3>
+            <label>Exam Name:</label>
+            <input type="text" id="examName" value="BIOLOGY EXAM 2024">
+            <label>Total Questions (Max 60):</label>
+            <input type="number" id="qCount" value="45" min="1" max="60" onchange="updateQCount()">
+            <button onclick="printPDF()" class="btn btn-outline">🖨️ Print Blank Answer Sheet</button>
+        </div>
+
+        <!-- 模塊 2: 掃描 -->
+        <div class="panel">
+            <h3>2. Scan & Grade</h3>
+            <div class="radio-group">
+                <label><input type="radio" name="scanMode" value="grade" checked onchange="toggleMode()"> Grade Student</label>
+                <label><input type="radio" name="scanMode" value="key" onchange="toggleMode()"> Set Marking Scheme</label>
+            </div>
+            <label>Marking Scheme:</label>
+            <textarea id="answerKey" placeholder="A,B,C,D..."></textarea>
+            <label>Upload Student Sheet:</label>
+            <input type="file" id="uploadImage" accept="image/png, image/jpeg">
+            <button onclick="processImage()" id="actionBtn" class="btn btn-sage">🚀 Auto Grade</button>
+        </div>
+    </div>
+
+    <!-- 模塊 3: 即時結果 -->
+    <div id="results-box">
+        <div id="score-display">-- / --</div>
+        <div id="status">Ready to scan.</div>
+    </div>
+
+    <!-- 模塊 4: 匯出 -->
+    <div class="panel">
+        <h3>3. Data & Export</h3>
+        
+        <button onclick="exportSuperZIP()" class="btn btn-ochre" style="font-size: 1.1rem; padding: 18px;">
+            📦 EXPORT ALL-IN-ONE ZIP (Final Ranked Images & Reports)
+        </button>
+        
+        <div class="table-responsive">
+            <table class="data-table" id="recordTable">
+                <thead>
+                    <tr><th>Class</th><th>Class No.</th><th>Score</th><th>Max</th><th>Rank</th></tr>
+                </thead>
+                <tbody id="recordBody"></tbody>
+            </table>
+        </div>
+        <button onclick="clearData()" class="btn btn-slate" style="margin-top: 20px;">🗑️ Clear All Records</button>
+    </div>
+    
+    <canvas id="canvas" width="1240" height="1754"></canvas>
+</div>
+
+<script>
+    const tmpl = {
+        w: 1240, h: 1754, cols: 3, rows: 20, gapX: 65, gapY: 50, rectW: 34, rectH: 18,
+        anchors: { TL: { x: 80, y: 80 }, TR: { x: 1160, y: 80 }, BL: { x: 80, y: 1674 }, BR: { x: 1160, y: 1674 } },
+        omr: { colsX: [780, 845, 940, 1005, 1070], startY: 285, gapY: 27 },
+        // ★ Name Box 與 Sys Box 尺寸及排版升級
+        nameBox: { x: 150, y: 250, w: 400, h: 70 },
+        sysBox: { x: 150, y: 335, w: 400, h: 150 }
+    };
+
+    let transformMatrix = []; let realAnchors = {}; let records = [];
+    const canvas = document.getElementById('canvas'); const ctx = canvas.getContext('2d', { willReadFrequently: true });
+
+    function getQuestionCoords(qIndex) {
+        let col = Math.floor(qIndex / tmpl.rows); let row = qIndex % tmpl.rows;
+        return { x: 180 + (col * 360), y: 600 + (row * tmpl.gapY) }; 
+    }
+    function getInfoOmrCoords(colIndex, rowIndex) { return { x: tmpl.omr.colsX[colIndex], y: tmpl.omr.startY + rowIndex * tmpl.omr.gapY }; }
+    function updateQCount() { let c = parseInt(document.getElementById('qCount').value); document.getElementById('qCount').value = Math.max(1, Math.min(60, c)); }
+    function toggleMode() {
+        let isGrade = document.querySelector('input[name="scanMode"]:checked').value === 'grade';
+        document.getElementById('actionBtn').innerText = isGrade ? "🚀 Auto Grade" : "🔑 Scan as Marking Scheme";
+        document.getElementById('actionBtn').className = isGrade ? "btn btn-sage" : "btn btn-slate";
+    }
+
+    function drawRectBox(txt, p, isBlackText = true) {
+        ctx.strokeStyle = "#d9534f"; ctx.lineWidth = 1.5;
+        ctx.strokeRect(p.x - tmpl.rectW/2, p.y - tmpl.rectH/2, tmpl.rectW, tmpl.rectH);
+        ctx.fillStyle = isBlackText ? "black" : "#d9534f"; ctx.fillText(txt, p.x, p.y + 5);
+    }
+
+    // 🖨️ 生成 PDF (全新加大 Name Box + 詳盡 Sys Box)
+    function printPDF() {
+        canvas.width = tmpl.w; canvas.height = tmpl.h;
+        ctx.fillStyle = "white"; ctx.fillRect(0, 0, tmpl.w, tmpl.h);
+        ctx.fillStyle = "black";
+        Object.values(tmpl.anchors).forEach(p => ctx.fillRect(p.x - 25, p.y - 25, 50, 50));
+        
+        ctx.font = "bold 42px 'Times New Roman'"; ctx.textAlign = "center";
+        ctx.fillText("CCC KEI YUEN COLLEGE", tmpl.w / 2, 110);
+        ctx.font = "bold 26px Arial"; ctx.fillText("Multiple Choice Answer Sheet", tmpl.w / 2, 150);
+        
+        ctx.textAlign = "left"; ctx.font = "20px Arial"; ctx.fillStyle = "#333";
+        ctx.fillText("Instructions: Completely fill the rectangles.", 150, 210);
+        ctx.fillText("Use an H.B. pencil. Erase cleanly.", 150, 235);
+
+        // ★ Name Box (更大)
+        ctx.strokeStyle = "black"; ctx.lineWidth = 1.5;
+        ctx.strokeRect(tmpl.nameBox.x, tmpl.nameBox.y, tmpl.nameBox.w, tmpl.nameBox.h);
+        ctx.fillStyle = "black"; ctx.font = "bold 20px Arial";
+        ctx.fillText("Name: ", tmpl.nameBox.x + 15, tmpl.nameBox.y + 30);
+
+        // ★ System Use Only Box (增加 Rank 行)
+        ctx.strokeRect(tmpl.sysBox.x, tmpl.sysBox.y, tmpl.sysBox.w, tmpl.sysBox.h);
+        ctx.fillStyle = "#555"; ctx.font = "bold 14px Arial"; ctx.textAlign = "center";
+        ctx.fillText("[ SYSTEM USE ONLY ]", tmpl.sysBox.x + tmpl.sysBox.w/2, tmpl.sysBox.y + 22);
+        
+        ctx.textAlign = "left"; ctx.font = "18px Arial"; ctx.fillStyle = "black";
+        ctx.fillText("Class:         ________", tmpl.sysBox.x + 20, tmpl.sysBox.y + 55);
+        ctx.fillText("Class no.:  ________", tmpl.sysBox.x + 20, tmpl.sysBox.y + 85);
+        ctx.fillText("Score:        ________ / ________", tmpl.sysBox.x + 20, tmpl.sysBox.y + 115);
+        ctx.fillText("Rank:         ________ / ________", tmpl.sysBox.x + 20, tmpl.sysBox.y + 140);
+
+        // Class & No OMR
+        const tableX = 740, tableY = 180, tableW = 370;
+        ctx.strokeStyle = "black"; ctx.lineWidth = 2;
+        ctx.strokeRect(tableX, tableY, tableW, 40);
+        ctx.strokeRect(tableX, tableY + 40, tableW, 45); 
+        ctx.beginPath(); ctx.moveTo(tableX, tableY + 65); ctx.lineTo(tableX + tableW, tableY + 65); 
+        ctx.moveTo(895, tableY + 40); ctx.lineTo(895, tableY + 85); ctx.stroke();
+
+        ctx.textAlign = "center"; ctx.font = "bold 18px Arial";
+        ctx.fillText("Class", 815, tableY + 60);
+        ctx.fillText("Class no.", 1000, tableY + 60);
+        
+        ctx.font = "16px Arial"; 
+        for(let i=0; i<7; i++) drawRectBox((i+1).toString(), getInfoOmrCoords(0, i)); 
+        const classes = ['A','B','C','D','E'];
+        for(let i=0; i<5; i++) drawRectBox(classes[i], getInfoOmrCoords(1, i)); 
+        for(let c=2; c<=4; c++) { for(let i=0; i<10; i++) drawRectBox(i.toString(), getInfoOmrCoords(c, i)); } 
+
+        // MC Grid
+        const letters = ['A', 'B', 'C', 'D']; 
+        for (let i = 0; i < 60; i++) {
+            let pos = getQuestionCoords(i);
+            if (i % tmpl.rows === 0) {
+                ctx.font = "bold 20px Arial"; ctx.textAlign = "center"; ctx.fillStyle = "#d9534f";
+                for(let j=0; j<4; j++) ctx.fillText(letters[j], pos.x + (j * tmpl.gapX), pos.y - 30);
+            }
+            ctx.font = "bold 22px Arial"; ctx.textAlign = "right"; ctx.fillStyle = "black";
+            ctx.fillText((i + 1) + ".", pos.x - 30, pos.y + 6);
+            ctx.textAlign = "center"; ctx.font = "16px Arial";
+            for (let j = 0; j < 4; j++) drawRectBox(letters[j], { x: pos.x + (j * tmpl.gapX), y: pos.y }, false); 
+        }
+        window.print();
+    }
+
+    // 📸 處理上傳圖片
+    function processImage() {
+        const file = document.getElementById('uploadImage').files[0];
+        if(!file) return alert("Please upload an image.");
+        let reader = new FileReader();
+        reader.onload = e => {
+            let img = new Image();
+            img.onload = () => {
+                let scale = img.width > 1200 ? 1200 / img.width : 1;
+                canvas.width = img.width * scale; canvas.height = img.height * scale;
+                ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+                
+                if(findAllAnchors()) {
+                    calculateHomography();
+                    let mode = document.querySelector('input[name="scanMode"]:checked').value;
+                    if(mode === 'key') scanAsKey(); else gradeSheet();
+                } else {
+                    document.getElementById('status').innerText = "❌ Anchors not found. Ensure good lighting.";
+                }
+            };
+            img.src = e.target.result;
+        };
+        reader.readAsDataURL(file);
+    }
+
+    function getDarknessScore(cx, cy, searchRadius, isRedChannelOnly) {
+        if(cx-searchRadius<0 || cy-searchRadius<0 || cx+searchRadius>canvas.width || cy+searchRadius>canvas.height) return 0;
+        let imgData = ctx.getImageData(cx - searchRadius, cy - searchRadius, searchRadius * 2, searchRadius * 2).data;
+        let dark = 0, total = 0;
+        for (let y = -searchRadius; y < searchRadius; y++) {
+            for (let x = -searchRadius; x < searchRadius; x++) {
+                if (x*x + y*y <= searchRadius*searchRadius) {
+                    let i = (Math.floor(y + searchRadius) * Math.floor(searchRadius * 2) + Math.floor(x + searchRadius)) * 4;
+                    let val = isRedChannelOnly ? imgData[i] : (imgData[i]+imgData[i+1]+imgData[i+2])/3;
+                    if (val < 130) dark++; total++;
+                }
+            }
+        }
+        return dark / total;
+    }
+
+    function scanStudentInfo(vScale) {
+        let rad = (tmpl.rectH / 2) * vScale * 1.5; 
+        let maxF = 0, idxF = -1;
+        for(let i=0; i<7; i++) { let p = mapCoordinate(getInfoOmrCoords(0, i).x, getInfoOmrCoords(0, i).y); let s = getDarknessScore(p.x, p.y, rad, true); if(s > maxF && s > 0.15) { maxF = s; idxF = i; } }
+        let formStr = idxF !== -1 ? (idxF + 1).toString() : "?";
+
+        let maxC = 0, idxC = -1;
+        for(let i=0; i<5; i++) { let p = mapCoordinate(getInfoOmrCoords(1, i).x, getInfoOmrCoords(1, i).y); let s = getDarknessScore(p.x, p.y, rad, true); if(s > maxC && s > 0.15) { maxC = s; idxC = i; } }
+        let clsStr = idxC !== -1 ? ['A','B','C','D','E'][idxC] : "?";
+
+        let numStr = "";
+        for(let c=2; c<=4; c++) {
+            let maxN = 0, idxN = 0; 
+            for(let i=0; i<10; i++) { let p = mapCoordinate(getInfoOmrCoords(c, i).x, getInfoOmrCoords(c, i).y); let s = getDarknessScore(p.x, p.y, rad, true); if(s > maxN && s > 0.15) { maxN = s; idxN = i; } }
+            numStr += idxN;
+        }
+        return { class: formStr + clsStr, no: parseInt(numStr).toString() };
+    }
+
+    function scanAsKey() {
+        let qCount = parseInt(document.getElementById('qCount').value);
+        let vScale = (realAnchors.TR.x - realAnchors.TL.x) / (tmpl.anchors.TR.x - tmpl.anchors.TL.x);
+        let rad = (tmpl.rectH / 2) * vScale * 1.5; let newKey = "";
+        for (let i = 0; i < qCount; i++) {
+            let tPos = getQuestionCoords(i); let maxScore = 0; let darkest = -1;
+            for (let j = 0; j < 4; j++) { let mRect = mapCoordinate(tPos.x + (j * tmpl.gapX), tPos.y); let s = getDarknessScore(mRect.x, mRect.y, rad, true); if (s > maxScore) { maxScore = s; darkest = j; } }
+            newKey += (maxScore > 0.15 && darkest !== -1) ? ['A','B','C','D'][darkest] : "A";
+        }
+        document.getElementById('answerKey').value = newKey; document.querySelector('input[value="grade"]').checked = true; toggleMode();
+        document.getElementById('status').innerText = `🔑 Marking Scheme Saved!`;
+    }
+
+    // 🎨 蓋章引擎 (用於即時預覽及最終 ZIP 打包)
+    function drawSystemStamp(context, rClass, rNo, rScore, rMax, rRank, rTotal, matrixArray, vScale) {
+        // 使用保存的 matrix 還原坐標
+        const mapPoint = (x, y) => {
+            let d = matrixArray[6]*x + matrixArray[7]*y + matrixArray[8];
+            return { x: (matrixArray[0]*x + matrixArray[1]*y + matrixArray[2])/d, y: (matrixArray[3]*x + matrixArray[4]*y + matrixArray[5])/d };
+        };
+        let boxTL = mapPoint(tmpl.sysBox.x, tmpl.sysBox.y);
+        let boxBR = mapPoint(tmpl.sysBox.x + tmpl.sysBox.w, tmpl.sysBox.y + tmpl.sysBox.h);
+        
+        context.fillStyle = "rgba(255, 255, 255, 0.95)"; 
+        context.fillRect(boxTL.x, boxTL.y, boxBR.x - boxTL.x, boxBR.y - boxTL.y);
+        context.strokeStyle = "#C09A65"; context.lineWidth = 4;
+        context.strokeRect(boxTL.x, boxTL.y, boxBR.x - boxTL.x, boxBR.y - boxTL.y);
+        
+        context.fillStyle = "#C09A65"; context.font = `bold ${18 * vScale}px Arial`; context.textAlign = "center";
+        context.fillText("GRADED BY SYSTEM", (boxTL.x + boxBR.x)/2, boxTL.y + 25*vScale);
+        
+        context.textAlign = "left"; context.fillStyle = "#333"; context.font = `bold ${18 * vScale}px monospace`;
+        let leftX = boxTL.x + 20 * vScale;
+        context.fillText(`Class:    ${rClass}`, leftX, boxTL.y + 60*vScale);
+        context.fillText(`Class No: ${rNo}`, leftX, boxTL.y + 85*vScale);
+        context.fillText(`Score:    ${rScore} / ${rMax}`, leftX, boxTL.y + 110*vScale);
+        context.fillStyle = "#B56B5C"; // 紅色突顯 Rank
+        context.fillText(`Rank:     ${rRank} / ${rTotal}`, leftX, boxTL.y + 135*vScale);
+    }
+
+    function gradeSheet() {
+        let qCount = parseInt(document.getElementById('qCount').value);
+        let key = document.getElementById('answerKey').value.toUpperCase().replace(/[^A-D]/g, '');
+        if(key.length < qCount) return alert(`Marking Scheme incomplete!`);
+
+        let score = 0, correct = 0, incorrect = 0, missing = 0;
+        let vScale = (realAnchors.TR.x - realAnchors.TL.x) / (tmpl.anchors.TR.x - tmpl.anchors.TL.x);
+        let rad = (tmpl.rectH / 2) * vScale * 1.5; 
+        let stu = scanStudentInfo(vScale); let ansDetails = []; 
+
+        for (let i = 0; i < qCount; i++) {
+            let tPos = getQuestionCoords(i); let maxScore = 0; let darkest = -1;
+            for (let j = 0; j < 4; j++) { let mRect = mapCoordinate(tPos.x + (j * tmpl.gapX), tPos.y); let s = getDarknessScore(mRect.x, mRect.y, rad, true); if (s > maxScore) { maxScore = s; darkest = j; } }
+            if (maxScore < 0.15) darkest = -1; 
+            let correctIdx = ['A','B','C','D'].indexOf(key[i]);
+            let stdAns = darkest !== -1 ? ['A','B','C','D'][darkest] : "";
+            
+            let status = "";
+            if (darkest === -1) { missing++; status = "Missing"; }
+            else if (darkest === correctIdx) { score++; correct++; status = "Correct"; }
+            else { incorrect++; status = "Incorrect"; }
+            ansDetails.push({ q: i+1, key: key[i], ans: stdAns, status: status });
+
+            for (let j = 0; j < 4; j++) {
+                let mRect = mapCoordinate(tPos.x + (j * tmpl.gapX), tPos.y);
+                let bw = tmpl.rectW * vScale, bh = tmpl.rectH * vScale;
+                ctx.lineWidth = 4;
+                if (j === correctIdx) { ctx.strokeStyle = "#28a745"; ctx.strokeRect(mRect.x-bw/2-4, mRect.y-bh/2-4, bw+8, bh+8); } 
+                else if (j === darkest && darkest !== correctIdx) {
+                    ctx.strokeStyle = "#ff4757"; ctx.beginPath();
+                    ctx.moveTo(mRect.x-bw/2, mRect.y-bh/2); ctx.lineTo(mRect.x+bw/2, mRect.y+bh/2);
+                    ctx.moveTo(mRect.x+bw/2, mRect.y-bh/2); ctx.lineTo(mRect.x-bw/2, mRect.y+bh/2); ctx.stroke();
+                }
+            }
+            let markPos = mapCoordinate(tPos.x + (4 * tmpl.gapX), tPos.y); 
+            ctx.font = `bold ${24 * vScale}px Arial`; ctx.textAlign = "left";
+            if (status === "Correct") { ctx.fillStyle = "#28a745"; ctx.fillText("✓", markPos.x, markPos.y + 8); }
+            else if (status === "Incorrect") { ctx.fillStyle = "#ff4757"; ctx.fillText("✗", markPos.x, markPos.y + 8); }
+            else if (status === "Missing") { ctx.fillStyle = "#3498db"; ctx.fillText("━", markPos.x, markPos.y + 4); }
+        }
+
+        // 灰階化未批改的題目
+        for(let i=qCount; i<60; i++){
+            let tPos = getQuestionCoords(i);
+            for (let j = 0; j < 4; j++) { let mRect = mapCoordinate(tPos.x + (j * tmpl.gapX), tPos.y); ctx.fillStyle = "rgba(0,0,0,0.4)"; ctx.fillRect(mRect.x-15, mRect.y-8, 30, 16); }
+        }
+
+        let percent = Math.round((score / qCount) * 100);
+        
+        // ★ 核心邏輯：先 Save 無蓋章嘅 Canvas，畀最後打包用
+        let unmarkedBase64 = canvas.toDataURL("image/jpeg", 1.0);
+
+        // ★ 畫即時預覽圖章 (Rank 顯示 Updating)
+        drawSystemStamp(ctx, stu.class, stu.no, score, qCount, "(Updating...)", "?", transformMatrix, vScale);
+
+        document.getElementById('score-display').innerText = `${score} / ${qCount}`;
+        document.getElementById('status').innerText = `✅ Graded (Class: ${stu.class}, No: ${stu.no})`;
+
+        records.push({ 
+            class: stu.class, no: stu.no, score: score, max: qCount, percent: percent, 
+            correct: correct, incorrect: incorrect, missing: missing, details: ansDetails,
+            unmarkedImg: unmarkedBase64, matrix: [...transformMatrix], vScale: vScale
+        });
+        
+        records.sort((a,b) => b.score - a.score);
+        records.forEach((r, idx) => r.rank = idx + 1);
+        updateTable();
+    }
+
+    function updateTable() {
+        let html = "";
+        records.forEach(r => { html += `<tr><td>${r.class}</td><td>${r.no}</td><td>${r.score}</td><td>${r.max}</td><td>${r.rank}</td></tr>`; });
+        document.getElementById('recordBody').innerHTML = html;
+    }
+
+    function clearData() { records = []; updateTable(); document.getElementById('score-display').innerText = "-- / --"; document.getElementById('status').innerText = "Records Cleared."; }
+
+    // ==========================================
+    // 終極匯出：Super ZIP (打包所有嘢 + 延遲蓋章)
+    // ==========================================
+    async function exportSuperZIP() {
+        if(records.length === 0) return alert("No records to export.");
+        document.getElementById('status').innerText = "📦 Packing ZIP File (Applying Final Ranks)...";
+        
+        let zip = new JSZip();
+        let eName = document.getElementById('examName').value.replace(/[^a-zA-Z0-9]/g, '_');
+        let qCount = records[0].max;
+
+        // 1. 處理並蓋上「最終 Rank 圖章」嘅圖片
+        let imgFolder = zip.folder("Marked_Sheets");
+        let totalStus = records.length;
+
+        for(let r of records) {
+            await new Promise(resolve => {
+                let img = new Image();
+                img.onload = () => {
+                    // 重新畫落畫布度
+                    ctx.drawImage(img, 0, 0);
+                    // 蓋上包含最新 Rank 嘅圖章
+                    drawSystemStamp(ctx, r.class, r.no, r.score, r.max, r.rank, totalStus, r.matrix, r.vScale);
+                    // 轉換做 JPG
+                    let finalImg = canvas.toDataURL("image/jpeg", 0.7);
+                    imgFolder.file(`Class${r.class}_No${r.no}_Score${r.score}.jpg`, finalImg.split(',')[1], {base64: true});
+                    resolve();
+                };
+                img.src = r.unmarkedImg; // 讀取未蓋章嘅原圖
+            });
+        }
+
+        // 2. 生成 CSV
+        let csv = "Exam Name,Class,Class No.,Rank,Correct,Incorrect,Missing,Score,";
+        for(let i=1; i<=qCount; i++) csv += `Q${i},`; csv += "\n";
+        records.forEach(r => {
+            csv += `${eName},${r.class},${r.no},${r.rank}/${totalStus},${r.correct},${r.incorrect},${r.missing},${r.score}/${r.max},`;
+            r.details.forEach(d => {
+                if(d.status === "Correct") csv += `${d.ans}✓,`;
+                else if(d.status === "Missing") csv += `-,`;
+                else csv += `${d.ans}x${d.key},`;
+            });
+            csv += "\n";
+        });
+        zip.file(`${eName}_Scores.csv`, "\ufeff"+csv);
+
+        // 3. 生成 HTML 學生報告
+        let rHtml = `<html><head><meta charset="utf-8"><style>
+            body { font-family: Arial, sans-serif; } table { border-collapse: collapse; width: 100%; margin-bottom: 40px; font-size: 13px; text-align: center; }
+            th, td { border: 1px solid black; padding: 4px; } .h { background-color: #f2f2f2; font-weight: bold; } .c-ans { width: 3%; }
+        </style></head><body><h2 style="text-align:center;">Student Score Reports</h2>`;
+        records.forEach(r => {
+            rHtml += `<table>`; let blocks = Math.ceil(qCount / 20); 
+            for(let b=0; b<blocks; b++) {
+                let startQ = b * 20; let endQ = Math.min(startQ + 20, qCount);
+                rHtml += `<tr>`;
+                if(b===0) rHtml += `<td colspan="2" class="h">Exam name</td><td colspan="2">${eName}</td>`;
+                else if(b===1) rHtml += `<td colspan="2" class="h">Class no.</td><td colspan="2">${r.no}</td>`;
+                else rHtml += `<td colspan="4"></td>`;
+                rHtml += `<td class="h">Correct</td><td>${r.correct}</td>`;
+                for(let i=startQ; i<endQ; i++) rHtml += `<td class="h c-ans">Q${i+1}</td>`;
+                rHtml += `</tr><tr>`;
+                if(b===0) rHtml += `<td colspan="2" class="h">Class</td><td colspan="2">${r.class}</td>`;
+                else if(b===1) rHtml += `<td colspan="2" class="h">Rank</td><td colspan="2">${r.rank}/${totalStus}</td>`;
+                else rHtml += `<td colspan="4"></td>`;
+                rHtml += `<td class="h">Incorrect</td><td>${r.incorrect}</td>`;
+                for(let i=startQ; i<endQ; i++) {
+                    let d = r.details[i]; let text = d.status === "Correct" ? `${d.ans}✓` : (d.status==="Missing" ? "-" : `${d.ans}x${d.key}`);
+                    rHtml += `<td>${text}</td>`;
+                }
+                rHtml += `</tr>`;
+                if(b===0) {
+                    rHtml += `<tr><td colspan="2" class="h">Class no.</td><td colspan="2">${r.no}</td><td class="h">Missing</td><td>${r.missing}</td><td colspan="${endQ-startQ}"></td></tr>`;
+                    rHtml += `<tr><td colspan="2" class="h">Rank</td><td colspan="2">${r.rank}/${totalStus}</td><td class="h">Score</td><td>${r.score}/${r.max}</td><td colspan="${endQ-startQ}"></td></tr>`;
+                }
+            }
+            rHtml += `</table>`;
+        });
+        rHtml += `</body></html>`;
+        zip.file(`${eName}_Student_Reports.html`, rHtml);
+
+        // 4. 生成 HTML 教師分析
+        let scores = records.map(r => r.score); let maxS = Math.max(...scores), minS = Math.min(...scores);
+        let meanS = (scores.reduce((a,b)=>a+b, 0) / totalStus).toFixed(2);
+        
+        let itemAna = [];
+        for(let i=0; i<qCount; i++) {
+            let key = records[0].details[i].key; let counts = { 'A':0, 'B':0, 'C':0, 'D':0, 'Missing':0, 'Correct':0 };
+            records.forEach(r => { let ans = r.details[i].ans; if(ans === "") counts['Missing']++; else counts[ans]++; if(r.details[i].status === "Correct") counts['Correct']++; });
+            itemAna.push({ q: i+1, key: key, c: counts });
+        }
+        let aHtml = `<html><head><meta charset="utf-8"><style>
+            body { font-family: sans-serif; padding: 20px; } table { border-collapse: collapse; width: 100%; }
+            th, td { border: 1px solid #ccc; padding: 10px; text-align: center; } th { background-color: #eee; }
+            .bad { color: red; font-weight: bold; }
+        </style></head><body><h1>Teacher Analytics</h1>
+        <p>Mean: ${meanS} | Max: ${maxS} | Min: ${minS} | Total Students: ${totalStus}</p>
+        <table><tr><th>Q.</th><th>Key</th><th>Correct %</th><th>A %</th><th>B %</th><th>C %</th><th>D %</th><th>Missing %</th></tr>`;
+        
+        itemAna.forEach(item => {
+            let cp = ((item.c.Correct / totalStus)*100).toFixed(1);
+            let pA = ((item.c['A'] / totalStus)*100).toFixed(1); let pB = ((item.c['B'] / totalStus)*100).toFixed(1);
+            let pC = ((item.c['C'] / totalStus)*100).toFixed(1); let pD = ((item.c['D'] / totalStus)*100).toFixed(1);
+            let pM = ((item.c['Missing'] / totalStus)*100).toFixed(1);
+            aHtml += `<tr><td><b>${item.q}</b></td><td>${item.key}</td><td ${cp < 40 ? `class="bad"` : ""}>${cp}%</td>
+                <td>${pA}%</td><td>${pB}%</td><td>${pC}%</td><td>${pD}%</td><td>${pM}%</td></tr>`;
+        });
+        aHtml += `</table></body></html>`;
+        zip.file(`${eName}_Teacher_Analytics.html`, aHtml);
+
+        // 5. 下載 ZIP (完成後清空畫布回復原狀)
+        zip.generateAsync({type:"blob"}).then(function(content) {
+            let a = document.createElement("a"); a.href = URL.createObjectURL(content);
+            a.download = `${eName}_Full_Export.zip`; a.click();
+            document.getElementById('status').innerText = "✅ All-in-One ZIP Downloaded!";
+            ctx.clearRect(0,0,canvas.width,canvas.height); // 清理預覽畫面
+        });
+    }
+
+    // [引擎算法不變]
+    function findAllAnchors() {
+        const w = canvas.width, h = canvas.height; const data = ctx.getImageData(0, 0, w, h).data; const visited = new Uint8Array(w * h); let candidates = [];
+        for (let y = 0; y < h; y += 4) {
+            for (let x = 0; x < w; x += 4) {
+                let idx = y * w + x; if (visited[idx]) continue;
+                if ((data[idx*4]+data[idx*4+1]+data[idx*4+2])/3 < 100) {
+                    let blob = floodFill(x, y, w, h, data, visited);
+                    let bw = (blob.maxX - blob.minX) + 1, bh = (blob.maxY - blob.minY) + 1;
+                    if (blob.area > (w*h)*0.0003 && blob.area < (w*h)*0.05 && bw/bh > 0.5 && bw/bh < 2.0 && blob.area/(bw*bh) > 0.6)
+                        candidates.push({ x: blob.sumX/blob.area, y: blob.sumY/blob.area, area: blob.area, minX: blob.minX, maxX: blob.maxX, minY: blob.minY, maxY: blob.maxY });
+                } else visited[idx] = 1;
+            }
+        }
+        if (candidates.length < 4) return false;
+        let best4 = candidates.sort((a, b) => b.area - a.area).slice(0, 4).sort((a, b) => a.y - b.y);
+        let t = [best4[0], best4[1]].sort((a, b) => a.x - b.x), b = [best4[2], best4[3]].sort((a, b) => a.x - b.x);
+        realAnchors = { TL: t[0], TR: t[1], BL: b[0], BR: b[1] }; return true;
+    }
+    function floodFill(startX, startY, w, h, data, visited) {
+        let blob = { area: 0, sumX: 0, sumY: 0, minX: w, maxX: 0, minY: h, maxY: 0 }; let stack = [[startX, startY]];
+        while (stack.length > 0) {
+            let [cx, cy] = stack.pop(); let idx = cy * w + cx;
+            if (visited[idx]) continue; visited[idx] = 1; if ((data[idx*4]+data[idx*4+1]+data[idx*4+2])/3 > 120) continue; 
+            blob.area++; blob.sumX += cx; blob.sumY += cy;
+            if(cx<blob.minX) blob.minX=cx; if(cx>blob.maxX) blob.maxX=cx; if(cy<blob.minY) blob.minY=cy; if(cy>blob.maxY) blob.maxY=cy;
+            if (cx+1<w) stack.push([cx+1, cy]); if (cx-1>=0) stack.push([cx-1, cy]); if (cy+1<h) stack.push([cx, cy+1]); if (cy-1>=0) stack.push([cx, cy-1]);
+        }
+        return blob;
+    }
+    function calculateHomography() {
+        const s = tmpl.anchors, d = realAnchors;
+        const src = [s.TL.x, s.TL.y, s.TR.x, s.TR.y, s.BR.x, s.BR.y, s.BL.x, s.BL.y]; const dst = [d.TL.x, d.TL.y, d.TR.x, d.TR.y, d.BR.x, d.BR.y, d.BL.x, d.BL.y];
+        let A = [];
+        for (let i = 0; i < 4; i++) { let x = src[i*2], y = src[i*2+1], u = dst[i*2], v = dst[i*2+1]; A.push([x, y, 1, 0, 0, 0, -u*x, -u*y, u]); A.push([0, 0, 0, x, y, 1, -v*x, -v*y, v]); }
+        let n = 8;
+        for (let i = 0; i < n; i++) {
+            let maxEl = Math.abs(A[i][i]), maxRow = i;
+            for (let k = i+1; k < n; k++) if (Math.abs(A[k][i]) > maxEl) { maxEl = Math.abs(A[k][i]); maxRow = k; }
+            for (let k = i; k < n+1; k++) { let tmp = A[maxRow][k]; A[maxRow][k] = A[i][k]; A[i][k] = tmp; }
+            for (let k = i+1; k < n; k++) { let c = -A[k][i] / A[i][i]; for (let j = i; j < n+1; j++) if (i === j) A[k][j] = 0; else A[k][j] += c * A[i][j]; }
+        }
+        let x = new Array(n).fill(0);
+        for (let i = n-1; i >= 0; i--) { x[i] = A[i][n] / A[i][i]; for (let k = i-1; k >= 0; k--) A[k][n] -= A[k][i] * x[i]; }
+        transformMatrix = [x[0], x[1], x[2], x[3], x[4], x[5], x[6], x[7], 1];
+    }
+    function mapCoordinate(x, y) { let m = transformMatrix, d = m[6]*x + m[7]*y + m[8]; return { x: (m[0]*x + m[1]*y + m[2])/d, y: (m[3]*x + m[4]*y + m[5])/d }; }
+    
+    window.onload = function() { printPDF(); toggleMode(); }
+</script>
+
+</body>
+</html>
