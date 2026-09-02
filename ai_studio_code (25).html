@@ -1,0 +1,778 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MC Auto-Grader System</title>
+    <!-- JSZip for exporting data -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+    <style>
+        /* Wabi-Sabi Minimalist UI */
+        :root { 
+            --bg: #272623; --surface: #33312E; --surface-light: #44413D; --text-main: #E3DFD5; --text-dim: #A6A297; 
+            --sage: #798870; --sage-dim: #5c6954; --clay: #B56B5C; --slate: #6C7A89; --ochre: #C09A65; --border: #4A4843;
+            --error: #ff4757; --success: #28a745;
+        }
+        * { box-sizing: border-box; }
+        body { font-family: 'Helvetica Neue', Arial, sans-serif; background-color: var(--bg); color: var(--text-main); margin: 0; padding: 20px; line-height: 1.6; font-weight: 300; }
+        
+        .container { max-width: 1200px; margin: 0 auto; }
+        
+        /* Header & Progress Steps */
+        .header { text-align: center; margin-bottom: 25px; }
+        .header h1 { color: var(--text-main); margin: 0 0 5px 0; font-size: 2.2rem; font-weight: 400; letter-spacing: 2px; }
+        .header p { color: var(--text-dim); margin: 0; font-size: 1rem; }
+        
+        .steps-nav { display: flex; justify-content: center; gap: 20px; margin-bottom: 30px; font-size: 0.95rem; color: var(--text-dim); }
+        .step-indicator { padding: 8px 16px; border-radius: 20px; background: var(--surface); border: 1px solid var(--border); transition: 0.3s; }
+        .step-indicator.active { background: var(--sage); color: #fff; border-color: var(--sage); font-weight: 500; }
+
+        /* Step Sections */
+        .step-section { display: none; animation: fadeIn 0.4s ease; }
+        .step-section.active { display: block; }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+
+        .panel { background: var(--surface); padding: 30px; border-radius: 12px; border: 1px solid var(--border); box-shadow: 0 8px 24px rgba(0,0,0,0.15); margin-bottom: 20px; }
+        .panel h3 { margin-top: 0; color: var(--text-main); font-weight: 400; font-size: 1.4rem; border-bottom: 1px solid var(--border); padding-bottom: 12px; margin-bottom: 20px; }
+        
+        /* Form Inputs */
+        label { font-size: 0.95rem; color: var(--text-dim); display: block; margin: 15px 0 8px 0; }
+        input[type="text"], input[type="number"], textarea { 
+            width: 100%; padding: 14px; border-radius: 8px; border: 1px solid var(--border); background: var(--bg); color: var(--text-main); font-family: inherit; font-size: 1.05rem; transition: all 0.3s ease; 
+        }
+        input:focus, textarea:focus { border-color: var(--sage); outline: none; box-shadow: 0 0 0 2px rgba(121,136,112,0.3); }
+        textarea { height: 120px; resize: vertical; letter-spacing: 2px; }
+        
+        /* Buttons */
+        .btn { display: inline-flex; align-items: center; justify-content: center; gap: 8px; padding: 14px 24px; border: none; border-radius: 8px; font-weight: 500; font-size: 1rem; cursor: pointer; transition: all 0.2s ease; color: #fff; text-decoration: none; }
+        .btn:hover:not(:disabled) { filter: brightness(1.1); transform: translateY(-1px); }
+        .btn:disabled { opacity: 0.5; cursor: not-allowed; filter: grayscale(100%); }
+        .btn-sage { background-color: var(--sage); }
+        .btn-ochre { background-color: var(--ochre); color: #222; font-weight: bold; }
+        .btn-slate { background-color: var(--slate); }
+        .btn-outline { background-color: transparent; border: 1px solid var(--text-dim); color: var(--text-main); }
+        .btn-outline:hover { background-color: var(--text-main); color: var(--bg); }
+        .btn-link { background: transparent; color: var(--ochre); padding: 0; text-decoration: underline; font-size: 0.9rem; }
+        .btn-link:hover { color: #fff; }
+
+        .flex-between { display: flex; justify-content: space-between; align-items: center; margin-top: 25px; flex-wrap: wrap; gap: 15px; }
+
+        /* Interactive Grid for Marking Scheme */
+        .mc-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 15px; margin-top: 20px; background: var(--bg); padding: 20px; border-radius: 8px; border: 1px solid var(--border); max-height: 400px; overflow-y: auto; }
+        .mc-row { display: flex; align-items: center; gap: 8px; }
+        .mc-row span { width: 30px; color: var(--text-dim); font-weight: bold; text-align: right; }
+        .mc-bubble { width: 22px; height: 22px; border-radius: 50%; border: 1px solid var(--text-dim); display: flex; align-items: center; justify-content: center; font-size: 0.75rem; cursor: pointer; color: var(--text-dim); transition: 0.2s; user-select: none; }
+        .mc-bubble:hover { border-color: var(--sage); color: var(--sage); }
+        .mc-bubble.active { background-color: var(--sage); border-color: var(--sage); color: #fff; font-weight: bold; }
+
+        /* File Upload Zone */
+        .upload-zone { border: 2px dashed var(--border); border-radius: 12px; padding: 40px; text-align: center; background: var(--bg); cursor: pointer; transition: 0.3s; margin-bottom: 20px; }
+        .upload-zone:hover { border-color: var(--sage); background: var(--surface-light); }
+        .upload-zone input[type="file"] { display: none; }
+        .upload-icon { font-size: 3rem; margin-bottom: 10px; }
+        .progress-box { background: var(--surface-light); padding: 20px; border-radius: 8px; text-align: center; margin-top: 20px; display: none; border: 1px solid var(--border); }
+        .progress-text { font-size: 1.2rem; color: var(--sage); font-weight: bold; margin-bottom: 10px; }
+        .error-log { margin-top: 15px; text-align: left; background: rgba(255, 71, 87, 0.1); border-left: 4px solid var(--error); padding: 10px 15px; border-radius: 4px; display: none; font-size: 0.9rem; }
+        .error-log ul { margin: 5px 0 0 0; padding-left: 20px; color: var(--error); }
+
+        /* Results & Table */
+        .table-responsive { overflow-x: auto; margin-top: 20px; }
+        .data-table { width: 100%; border-collapse: collapse; min-width: 600px; font-size: 0.95rem; }
+        .data-table th, .data-table td { border-bottom: 1px solid var(--border); padding: 12px; text-align: center; }
+        .data-table th { color: var(--text-dim); font-weight: 500; text-transform: uppercase; letter-spacing: 1px; font-size: 0.85rem; }
+        
+        #previewContainer { text-align: center; margin-top: 30px; display: none; }
+        canvas { max-width: 100%; height: auto; border-radius: 10px; display: inline-block; background: #fff; box-shadow: 0 8px 30px rgba(0,0,0,0.2); }
+
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <div class="header">
+        <h1>CCC KEI YUEN COLLEGE</h1>
+        <p>MC Auto-Grader System</p>
+    </div>
+    
+    <div class="steps-nav">
+        <div id="ind-1" class="step-indicator active">1. Setup</div>
+        <div id="ind-2" class="step-indicator">2. Marking Scheme</div>
+        <div id="ind-3" class="step-indicator">3. Scan Papers</div>
+        <div id="ind-4" class="step-indicator">4. Results</div>
+    </div>
+
+    <!-- ==============================================
+         STEP 1: SETUP
+    ================================================-->
+    <div id="step1" class="step-section active">
+        <div class="panel">
+            <h3>1. Exam Setup</h3>
+            <label>Exam Name:</label>
+            <input type="text" id="examName" value="BIOLOGY EXAM 2024">
+            
+            <label>Total Questions (Max 60):</label>
+            <input type="number" id="qCount" value="45" min="1" max="60">
+
+            <div style="margin-top: 20px;">
+                <a href="https://raw.githubusercontent.com/hugow0528/mc-scanner-1/747ca1a86d74acd06eebc3ff687b7ab18ee4462f/sample/template/MC%20ANSWER%20SHEET%20.pdf" target="_blank" class="btn btn-outline" style="width: 100%;">
+                    📥 Download Blank Answer Sheet (PDF)
+                </a>
+                <p style="font-size: 0.85rem; color: var(--text-dim); text-align: center; margin-top: 10px;">
+                    Ensure students completely fill the bubbles and use a dark pencil.
+                </p>
+            </div>
+
+            <div class="flex-between">
+                <div></div>
+                <button onclick="goToStep(2)" class="btn btn-sage">Next ➔</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ==============================================
+         STEP 2: MARKING SCHEME
+    ================================================-->
+    <div id="step2" class="step-section">
+        <div class="panel">
+            <h3>2. Set Marking Scheme</h3>
+            <p style="font-size: 0.9rem; color: var(--text-dim); margin-bottom: 15px;">
+                Input your answers below. The grid and text box will sync automatically. Incorrect letters (e.g., E, F) are ignored.
+            </p>
+
+            <div style="display: flex; justify-content: space-between; align-items: center;">
+                <label style="margin:0;">Text Input:</label>
+                <a href="https://gemini.google.com/gem/1QKuEbfBW5Vuek311l2yuTjGRck04n1Mr?usp=sharing" target="_blank" class="btn-link">
+                    ✨ Use AI to extract answers from text
+                </a>
+            </div>
+            
+            <!-- Type Input -->
+            <textarea id="answerKeyText" placeholder="A,B,C,D..." oninput="handleTextKeyInput()"></textarea>
+            <div id="keyStatus" style="text-align: right; font-size: 0.9rem; color: var(--error); margin-top: 5px;">0 / 45 Answers Set</div>
+
+            <!-- Clickable Grid -->
+            <label>Or Click to Set Answers:</label>
+            <div id="mcGrid" class="mc-grid"></div>
+            
+            <div style="margin-top: 25px; border-top: 1px solid var(--border); padding-top: 20px;">
+                <label>Alternative: Scan a perfectly filled answer sheet as the key</label>
+                <label class="btn btn-slate" style="display: inline-flex; width: auto;">
+                    📸 Upload Image as Key
+                    <input type="file" id="keyUpload" accept="image/png, image/jpeg" style="display: none;" onchange="processKeyUpload(this)">
+                </label>
+                <span id="keyUploadStatus" style="margin-left: 10px; font-size: 0.9rem; color: var(--sage);"></span>
+            </div>
+
+            <div class="flex-between">
+                <button onclick="goToStep(1)" class="btn btn-outline">⬅ Back</button>
+                <button id="btnStep2Next" onclick="goToStep(3)" class="btn btn-sage" disabled>Next ➔</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ==============================================
+         STEP 3: SCAN & GRADE
+    ================================================-->
+    <div id="step3" class="step-section">
+        <div class="panel">
+            <h3>3. Bulk Scan Student Papers</h3>
+            <p style="font-size: 0.9rem; color: var(--text-dim);">
+                Select one or multiple images of student answer sheets. The system will automatically align and grade them.
+            </p>
+
+            <label class="upload-zone" id="dropZone">
+                <div class="upload-icon">📂</div>
+                <div style="font-size: 1.2rem; color: var(--text-main); margin-bottom: 10px;">Click to Upload Images</div>
+                <div style="font-size: 0.9rem; color: var(--text-dim);">You can select multiple files at once. (JPG/PNG)</div>
+                <input type="file" id="studentUpload" multiple accept="image/png, image/jpeg" onchange="startBulkGrading(this)">
+            </label>
+
+            <div id="progressBox" class="progress-box">
+                <div id="progressText" class="progress-text">Grading 0 of 0...</div>
+                <div id="progressSub" style="color: var(--text-dim); font-size: 0.9rem;">Please wait, do not close this window.</div>
+            </div>
+
+            <div id="errorLog" class="error-log">
+                <strong>⚠️ Skipped Files (Could not detect boundaries / blurry):</strong>
+                <ul id="errorList"></ul>
+            </div>
+
+            <div class="flex-between">
+                <button onclick="goToStep(2)" class="btn btn-outline">⬅ Back to Key</button>
+                <button id="btnStep3Next" onclick="goToStep(4)" class="btn btn-sage" disabled>View Results ➔</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ==============================================
+         STEP 4: RESULTS
+    ================================================-->
+    <div id="step4" class="step-section">
+        <div class="panel">
+            <h3>4. Results & Export</h3>
+            
+            <button onclick="exportSuperZIP()" class="btn btn-ochre" style="font-size: 1.1rem; padding: 18px; width: 100%; margin-bottom: 20px;">
+                📦 EXPORT ALL-IN-ONE ZIP (Ranked Images, Reports, CSV)
+            </button>
+            
+            <div class="table-responsive">
+                <table class="data-table" id="recordTable">
+                    <thead>
+                        <tr><th>Class</th><th>Class No.</th><th>Score</th><th>Max</th><th>Rank</th></tr>
+                    </thead>
+                    <tbody id="recordBody">
+                        <!-- Populated by JS -->
+                    </tbody>
+                </table>
+            </div>
+
+            <div class="flex-between">
+                <button onclick="restartSystem()" class="btn btn-slate">🗑️ Start New Exam</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Hidden Canvas used for processing -->
+    <div id="previewContainer">
+        <h3 style="color: var(--text-dim); font-weight: 400; margin-bottom: 10px;">Last Scanned Sheet Preview</h3>
+        <canvas id="canvas" width="1240" height="1754"></canvas>
+    </div>
+
+</div>
+
+<script>
+    // --- GLOBAL VARIABLES & STATE ---
+    let currentStep = 1;
+    let examData = { qCount: 45, key: "" };
+    let records = []; // Stores student results
+    let currentKeyArray = []; 
+
+    // --- OMR CONFIGURATION (Matches PDF) ---
+    const tmpl = {
+        w: 1240, h: 1754, cols: 3, rows: 20, gapX: 65, gapY: 50, rectW: 34, rectH: 18,
+        anchors: { TL: { x: 80, y: 80 }, TR: { x: 1160, y: 80 }, BL: { x: 80, y: 1674 }, BR: { x: 1160, y: 1674 } },
+        omr: { colsX: [780, 845, 940, 1005, 1070], startY: 285, gapY: 27 },
+        sysBox: { x: 150, y: 335, w: 400, h: 150 }
+    };
+    let transformMatrix = []; 
+    let realAnchors = {}; 
+    const canvas = document.getElementById('canvas'); 
+    const ctx = canvas.getContext('2d', { willReadFrequently: true });
+
+    // --- WIZARD NAVIGATION ---
+    function goToStep(step) {
+        if(step === 2) {
+            // Lock in settings from Step 1
+            let maxQ = parseInt(document.getElementById('qCount').value);
+            examData.qCount = Math.max(1, Math.min(60, maxQ));
+            document.getElementById('qCount').value = examData.qCount;
+            if (currentKeyArray.length !== examData.qCount) {
+                currentKeyArray = new Array(examData.qCount).fill('');
+                document.getElementById('answerKeyText').value = "";
+            }
+            generateGrid();
+            validateKey();
+        }
+        
+        document.querySelectorAll('.step-section').forEach(el => el.classList.remove('active'));
+        document.querySelectorAll('.step-indicator').forEach(el => el.classList.remove('active'));
+        
+        document.getElementById('step' + step).classList.add('active');
+        document.getElementById('ind-' + step).classList.add('active');
+        currentStep = step;
+
+        // Show/hide canvas based on step
+        document.getElementById('previewContainer').style.display = (step === 4 && records.length > 0) ? 'block' : 'none';
+    }
+
+    // --- STEP 2: MARKING SCHEME LOGIC ---
+    function generateGrid() {
+        const grid = document.getElementById('mcGrid');
+        grid.innerHTML = '';
+        const opts = ['A', 'B', 'C', 'D'];
+        
+        for(let i = 0; i < examData.qCount; i++) {
+            let row = document.createElement('div');
+            row.className = 'mc-row';
+            row.innerHTML = `<span>${i+1}.</span>`;
+            
+            opts.forEach(opt => {
+                let bubble = document.createElement('div');
+                bubble.className = 'mc-bubble';
+                bubble.id = `q${i}_${opt}`;
+                bubble.innerText = opt;
+                if(currentKeyArray[i] === opt) bubble.classList.add('active');
+                
+                bubble.onclick = () => {
+                    currentKeyArray[i] = opt;
+                    updateGridUI();
+                    syncArrayToText();
+                    validateKey();
+                };
+                row.appendChild(bubble);
+            });
+            grid.appendChild(row);
+        }
+    }
+
+    function updateGridUI() {
+        for(let i = 0; i < examData.qCount; i++) {
+            ['A','B','C','D'].forEach(opt => {
+                let b = document.getElementById(`q${i}_${opt}`);
+                if(b) b.classList.remove('active');
+            });
+            if(currentKeyArray[i]) {
+                let activeB = document.getElementById(`q${i}_${currentKeyArray[i]}`);
+                if(activeB) activeB.classList.add('active');
+            }
+        }
+    }
+
+    function handleTextKeyInput() {
+        let raw = document.getElementById('answerKeyText').value.toUpperCase();
+        // Remove invalid chars
+        let filtered = raw.replace(/[^A-D]/g, ''); 
+        
+        // Truncate to max questions
+        if (filtered.length > examData.qCount) {
+            filtered = filtered.substring(0, examData.qCount);
+        }
+        
+        // Update Internal Array
+        currentKeyArray = new Array(examData.qCount).fill('');
+        for(let i=0; i<filtered.length; i++) {
+            currentKeyArray[i] = filtered[i];
+        }
+
+        // Format Textbox back nicely (Comma separated)
+        syncArrayToText();
+        updateGridUI();
+        validateKey();
+    }
+
+    function syncArrayToText() {
+        let strArr = currentKeyArray.filter(v => v !== '');
+        document.getElementById('answerKeyText').value = strArr.join(',');
+    }
+
+    function validateKey() {
+        let filledCount = currentKeyArray.filter(v => v !== '').length;
+        let status = document.getElementById('keyStatus');
+        let btnNext = document.getElementById('btnStep2Next');
+        
+        status.innerText = `${filledCount} / ${examData.qCount} Answers Set`;
+        
+        if (filledCount === examData.qCount) {
+            status.style.color = "var(--success)";
+            status.innerText += " ✅ Ready!";
+            btnNext.disabled = false;
+            examData.key = currentKeyArray.join('');
+        } else {
+            status.style.color = "var(--error)";
+            btnNext.disabled = true;
+            examData.key = "";
+        }
+    }
+
+    // --- STEP 3: BULK PROCESSING ENGINE ---
+    async function processKeyUpload(input) {
+        if(!input.files || input.files.length === 0) return;
+        let file = input.files[0];
+        document.getElementById('keyUploadStatus').innerText = "Scanning...";
+        
+        let success = await processSingleImage(file, true);
+        if(success) {
+            document.getElementById('keyUploadStatus').innerText = "✅ Key Imported!";
+            document.getElementById('keyUploadStatus').style.color = "var(--success)";
+            // Update Grid & Text
+            updateGridUI();
+            syncArrayToText();
+            validateKey();
+        } else {
+            document.getElementById('keyUploadStatus').innerText = "❌ Scan Failed. Check lighting.";
+            document.getElementById('keyUploadStatus').style.color = "var(--error)";
+        }
+        input.value = ""; // reset file input
+    }
+
+    async function startBulkGrading(input) {
+        if(!input.files || input.files.length === 0) return;
+        
+        let files = input.files;
+        let pBox = document.getElementById('progressBox');
+        let pText = document.getElementById('progressText');
+        let eLog = document.getElementById('errorLog');
+        let eList = document.getElementById('errorList');
+        
+        pBox.style.display = 'block';
+        eLog.style.display = 'none';
+        eList.innerHTML = '';
+        let failedList = [];
+
+        // Loop over files sequentially
+        for(let i=0; i<files.length; i++) {
+            pText.innerText = `Grading ${i+1} of ${files.length}... (${files[i].name})`;
+            let success = await processSingleImage(files[i], false);
+            if(!success) {
+                failedList.push(files[i].name);
+            }
+        }
+
+        // Processing Complete
+        pText.innerText = "✅ Grading Complete!";
+        document.getElementById('btnStep3Next').disabled = false;
+        
+        // Rank records
+        records.sort((a,b) => b.score - a.score);
+        records.forEach((r, idx) => r.rank = idx + 1);
+        
+        if (failedList.length > 0) {
+            eLog.style.display = 'block';
+            failedList.forEach(f => {
+                let li = document.createElement('li');
+                li.innerText = f;
+                eList.appendChild(li);
+            });
+        }
+        
+        // Re-render final results table
+        let html = "";
+        records.forEach(r => { 
+            html += `<tr><td>${r.class}</td><td>${r.no}</td><td>${r.score}</td><td>${r.max}</td><td>${r.rank}</td></tr>`; 
+        });
+        document.getElementById('recordBody').innerHTML = html;
+
+        input.value = ""; // clear input
+    }
+
+    // Promise Wrapper for Image Processing
+    function processSingleImage(file, isKeyScan) {
+        return new Promise((resolve) => {
+            let reader = new FileReader();
+            reader.onload = e => {
+                let img = new Image();
+                img.onload = () => {
+                    try {
+                        let scale = img.width > 1200 ? 1200 / img.width : 1;
+                        canvas.width = img.width * scale; canvas.height = img.height * scale;
+                        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+                        
+                        if(findAllAnchors()) {
+                            calculateHomography();
+                            if(isKeyScan) { scanAsKey(); } 
+                            else { gradeSheet(); }
+                            resolve(true);
+                        } else {
+                            resolve(false);
+                        }
+                    } catch(err) {
+                        console.error(err);
+                        resolve(false);
+                    }
+                };
+                img.onerror = () => resolve(false);
+                img.src = e.target.result;
+            };
+            reader.onerror = () => resolve(false);
+            reader.readAsDataURL(file);
+        });
+    }
+
+    // --- CORE OMR LOGIC ---
+    function getQuestionCoords(qIndex) {
+        let col = Math.floor(qIndex / tmpl.rows); let row = qIndex % tmpl.rows;
+        return { x: 180 + (col * 360), y: 600 + (row * tmpl.gapY) }; 
+    }
+    function getInfoOmrCoords(colIndex, rowIndex) { return { x: tmpl.omr.colsX[colIndex], y: tmpl.omr.startY + rowIndex * tmpl.omr.gapY }; }
+    
+    function getDarknessScore(cx, cy, searchRadius, isRedChannelOnly) {
+        if(cx-searchRadius<0 || cy-searchRadius<0 || cx+searchRadius>canvas.width || cy+searchRadius>canvas.height) return 0;
+        let imgData = ctx.getImageData(cx - searchRadius, cy - searchRadius, searchRadius * 2, searchRadius * 2).data;
+        let dark = 0, total = 0;
+        for (let y = -searchRadius; y < searchRadius; y++) {
+            for (let x = -searchRadius; x < searchRadius; x++) {
+                if (x*x + y*y <= searchRadius*searchRadius) {
+                    let i = (Math.floor(y + searchRadius) * Math.floor(searchRadius * 2) + Math.floor(x + searchRadius)) * 4;
+                    let val = isRedChannelOnly ? imgData[i] : (imgData[i]+imgData[i+1]+imgData[i+2])/3;
+                    if (val < 130) dark++; total++;
+                }
+            }
+        }
+        return dark / total;
+    }
+
+    function scanStudentInfo(vScale) {
+        let rad = (tmpl.rectH / 2) * vScale * 1.5; 
+        let maxF = 0, idxF = -1;
+        for(let i=0; i<7; i++) { let p = mapCoordinate(getInfoOmrCoords(0, i).x, getInfoOmrCoords(0, i).y); let s = getDarknessScore(p.x, p.y, rad, true); if(s > maxF && s > 0.15) { maxF = s; idxF = i; } }
+        let formStr = idxF !== -1 ? (idxF + 1).toString() : "?";
+
+        let maxC = 0, idxC = -1;
+        for(let i=0; i<5; i++) { let p = mapCoordinate(getInfoOmrCoords(1, i).x, getInfoOmrCoords(1, i).y); let s = getDarknessScore(p.x, p.y, rad, true); if(s > maxC && s > 0.15) { maxC = s; idxC = i; } }
+        let clsStr = idxC !== -1 ? ['A','B','C','D','E'][idxC] : "?";
+
+        let numStr = "";
+        for(let c=2; c<=4; c++) {
+            let maxN = 0, idxN = 0; 
+            for(let i=0; i<10; i++) { let p = mapCoordinate(getInfoOmrCoords(c, i).x, getInfoOmrCoords(c, i).y); let s = getDarknessScore(p.x, p.y, rad, true); if(s > maxN && s > 0.15) { maxN = s; idxN = i; } }
+            numStr += idxN;
+        }
+        return { class: formStr + clsStr, no: parseInt(numStr).toString() };
+    }
+
+    function scanAsKey() {
+        let vScale = (realAnchors.TR.x - realAnchors.TL.x) / (tmpl.anchors.TR.x - tmpl.anchors.TL.x);
+        let rad = (tmpl.rectH / 2) * vScale * 1.5; 
+        for (let i = 0; i < examData.qCount; i++) {
+            let tPos = getQuestionCoords(i); let maxScore = 0; let darkest = -1;
+            for (let j = 0; j < 4; j++) { let mRect = mapCoordinate(tPos.x + (j * tmpl.gapX), tPos.y); let s = getDarknessScore(mRect.x, mRect.y, rad, true); if (s > maxScore) { maxScore = s; darkest = j; } }
+            currentKeyArray[i] = (maxScore > 0.15 && darkest !== -1) ? ['A','B','C','D'][darkest] : "";
+        }
+    }
+
+    function gradeSheet() {
+        let key = examData.key;
+        let qCount = examData.qCount;
+        let score = 0, correct = 0, incorrect = 0, missing = 0;
+        let vScale = (realAnchors.TR.x - realAnchors.TL.x) / (tmpl.anchors.TR.x - tmpl.anchors.TL.x);
+        let rad = (tmpl.rectH / 2) * vScale * 1.5; 
+        let stu = scanStudentInfo(vScale); 
+        let ansDetails = []; 
+
+        for (let i = 0; i < qCount; i++) {
+            let tPos = getQuestionCoords(i); let maxScore = 0; let darkest = -1;
+            for (let j = 0; j < 4; j++) { let mRect = mapCoordinate(tPos.x + (j * tmpl.gapX), tPos.y); let s = getDarknessScore(mRect.x, mRect.y, rad, true); if (s > maxScore) { maxScore = s; darkest = j; } }
+            if (maxScore < 0.15) darkest = -1; 
+            let correctIdx = ['A','B','C','D'].indexOf(key[i]);
+            let stdAns = darkest !== -1 ? ['A','B','C','D'][darkest] : "";
+            
+            let status = "";
+            if (darkest === -1) { missing++; status = "Missing"; }
+            else if (darkest === correctIdx) { score++; correct++; status = "Correct"; }
+            else { incorrect++; status = "Incorrect"; }
+            ansDetails.push({ q: i+1, key: key[i], ans: stdAns, status: status });
+
+            // Draw Marking Graphics
+            for (let j = 0; j < 4; j++) {
+                let mRect = mapCoordinate(tPos.x + (j * tmpl.gapX), tPos.y);
+                let bw = tmpl.rectW * vScale, bh = tmpl.rectH * vScale;
+                ctx.lineWidth = 4;
+                if (j === correctIdx) { ctx.strokeStyle = "#28a745"; ctx.strokeRect(mRect.x-bw/2-4, mRect.y-bh/2-4, bw+8, bh+8); } 
+                else if (j === darkest && darkest !== correctIdx) {
+                    ctx.strokeStyle = "#ff4757"; ctx.beginPath();
+                    ctx.moveTo(mRect.x-bw/2, mRect.y-bh/2); ctx.lineTo(mRect.x+bw/2, mRect.y+bh/2);
+                    ctx.moveTo(mRect.x+bw/2, mRect.y-bh/2); ctx.lineTo(mRect.x-bw/2, mRect.y+bh/2); ctx.stroke();
+                }
+            }
+            let markPos = mapCoordinate(tPos.x + (4 * tmpl.gapX), tPos.y); 
+            ctx.font = `bold ${24 * vScale}px Arial`; ctx.textAlign = "left";
+            if (status === "Correct") { ctx.fillStyle = "#28a745"; ctx.fillText("✓", markPos.x, markPos.y + 8); }
+            else if (status === "Incorrect") { ctx.fillStyle = "#ff4757"; ctx.fillText("✗", markPos.x, markPos.y + 8); }
+            else if (status === "Missing") { ctx.fillStyle = "#3498db"; ctx.fillText("━", markPos.x, markPos.y + 4); }
+        }
+
+        // Gray out unused questions
+        for(let i=qCount; i<60; i++){
+            let tPos = getQuestionCoords(i);
+            for (let j = 0; j < 4; j++) { let mRect = mapCoordinate(tPos.x + (j * tmpl.gapX), tPos.y); ctx.fillStyle = "rgba(0,0,0,0.4)"; ctx.fillRect(mRect.x-15, mRect.y-8, 30, 16); }
+        }
+
+        // Save Unmarked (pre-stamp) image for later ZIP export
+        let unmarkedBase64 = canvas.toDataURL("image/jpeg", 0.9);
+
+        // Draw temporary Preview Stamp
+        drawSystemStamp(ctx, stu.class, stu.no, score, qCount, "(Auto)", "?", transformMatrix, vScale);
+
+        records.push({ 
+            class: stu.class, no: stu.no, score: score, max: qCount, percent: Math.round((score / qCount) * 100), 
+            correct: correct, incorrect: incorrect, missing: missing, details: ansDetails,
+            unmarkedImg: unmarkedBase64, matrix: [...transformMatrix], vScale: vScale
+        });
+    }
+
+    function drawSystemStamp(context, rClass, rNo, rScore, rMax, rRank, rTotal, matrixArray, vScale) {
+        const mapPoint = (x, y) => {
+            let d = matrixArray[6]*x + matrixArray[7]*y + matrixArray[8];
+            return { x: (matrixArray[0]*x + matrixArray[1]*y + matrixArray[2])/d, y: (matrixArray[3]*x + matrixArray[4]*y + matrixArray[5])/d };
+        };
+        let boxTL = mapPoint(tmpl.sysBox.x, tmpl.sysBox.y);
+        let boxBR = mapPoint(tmpl.sysBox.x + tmpl.sysBox.w, tmpl.sysBox.y + tmpl.sysBox.h);
+        
+        context.fillStyle = "rgba(255, 255, 255, 0.95)"; 
+        context.fillRect(boxTL.x, boxTL.y, boxBR.x - boxTL.x, boxBR.y - boxTL.y);
+        context.strokeStyle = "#C09A65"; context.lineWidth = 4;
+        context.strokeRect(boxTL.x, boxTL.y, boxBR.x - boxTL.x, boxBR.y - boxTL.y);
+        
+        context.fillStyle = "#C09A65"; context.font = `bold ${18 * vScale}px Arial`; context.textAlign = "center";
+        context.fillText("GRADED BY SYSTEM", (boxTL.x + boxBR.x)/2, boxTL.y + 25*vScale);
+        
+        context.textAlign = "left"; context.fillStyle = "#333"; context.font = `bold ${18 * vScale}px monospace`;
+        let leftX = boxTL.x + 20 * vScale;
+        context.fillText(`Class:    ${rClass}`, leftX, boxTL.y + 60*vScale);
+        context.fillText(`Class No: ${rNo}`, leftX, boxTL.y + 85*vScale);
+        context.fillText(`Score:    ${rScore} / ${rMax}`, leftX, boxTL.y + 110*vScale);
+        context.fillStyle = "#B56B5C"; 
+        context.fillText(`Rank:     ${rRank} / ${rTotal}`, leftX, boxTL.y + 135*vScale);
+    }
+
+    // --- MATH / IMAGE PROCESSING ---
+    function findAllAnchors() {
+        const w = canvas.width, h = canvas.height; const data = ctx.getImageData(0, 0, w, h).data; const visited = new Uint8Array(w * h); let candidates = [];
+        for (let y = 0; y < h; y += 4) {
+            for (let x = 0; x < w; x += 4) {
+                let idx = y * w + x; if (visited[idx]) continue;
+                if ((data[idx*4]+data[idx*4+1]+data[idx*4+2])/3 < 100) {
+                    let blob = floodFill(x, y, w, h, data, visited);
+                    let bw = (blob.maxX - blob.minX) + 1, bh = (blob.maxY - blob.minY) + 1;
+                    if (blob.area > (w*h)*0.0003 && blob.area < (w*h)*0.05 && bw/bh > 0.5 && bw/bh < 2.0 && blob.area/(bw*bh) > 0.6)
+                        candidates.push({ x: blob.sumX/blob.area, y: blob.sumY/blob.area, area: blob.area, minX: blob.minX, maxX: blob.maxX, minY: blob.minY, maxY: blob.maxY });
+                } else visited[idx] = 1;
+            }
+        }
+        if (candidates.length < 4) return false;
+        let best4 = candidates.sort((a, b) => b.area - a.area).slice(0, 4).sort((a, b) => a.y - b.y);
+        let t = [best4[0], best4[1]].sort((a, b) => a.x - b.x), b = [best4[2], best4[3]].sort((a, b) => a.x - b.x);
+        realAnchors = { TL: t[0], TR: t[1], BL: b[0], BR: b[1] }; return true;
+    }
+    function floodFill(startX, startY, w, h, data, visited) {
+        let blob = { area: 0, sumX: 0, sumY: 0, minX: w, maxX: 0, minY: h, maxY: 0 }; let stack = [[startX, startY]];
+        while (stack.length > 0) {
+            let [cx, cy] = stack.pop(); let idx = cy * w + cx;
+            if (visited[idx]) continue; visited[idx] = 1; if ((data[idx*4]+data[idx*4+1]+data[idx*4+2])/3 > 120) continue; 
+            blob.area++; blob.sumX += cx; blob.sumY += cy;
+            if(cx<blob.minX) blob.minX=cx; if(cx>blob.maxX) blob.maxX=cx; if(cy<blob.minY) blob.minY=cy; if(cy>blob.maxY) blob.maxY=cy;
+            if (cx+1<w) stack.push([cx+1, cy]); if (cx-1>=0) stack.push([cx-1, cy]); if (cy+1<h) stack.push([cx, cy+1]); if (cy-1>=0) stack.push([cx, cy-1]);
+        }
+        return blob;
+    }
+    function calculateHomography() {
+        const s = tmpl.anchors, d = realAnchors;
+        const src = [s.TL.x, s.TL.y, s.TR.x, s.TR.y, s.BR.x, s.BR.y, s.BL.x, s.BL.y]; const dst = [d.TL.x, d.TL.y, d.TR.x, d.TR.y, d.BR.x, d.BR.y, d.BL.x, d.BL.y];
+        let A = [];
+        for (let i = 0; i < 4; i++) { let x = src[i*2], y = src[i*2+1], u = dst[i*2], v = dst[i*2+1]; A.push([x, y, 1, 0, 0, 0, -u*x, -u*y, u]); A.push([0, 0, 0, x, y, 1, -v*x, -v*y, v]); }
+        let n = 8;
+        for (let i = 0; i < n; i++) {
+            let maxEl = Math.abs(A[i][i]), maxRow = i;
+            for (let k = i+1; k < n; k++) if (Math.abs(A[k][i]) > maxEl) { maxEl = Math.abs(A[k][i]); maxRow = k; }
+            for (let k = i; k < n+1; k++) { let tmp = A[maxRow][k]; A[maxRow][k] = A[i][k]; A[i][k] = tmp; }
+            for (let k = i+1; k < n; k++) { let c = -A[k][i] / A[i][i]; for (let j = i; j < n+1; j++) if (i === j) A[k][j] = 0; else A[k][j] += c * A[i][j]; }
+        }
+        let x = new Array(n).fill(0);
+        for (let i = n-1; i >= 0; i--) { x[i] = A[i][n] / A[i][i]; for (let k = i-1; k >= 0; k--) A[k][n] -= A[k][i] * x[i]; }
+        transformMatrix = [x[0], x[1], x[2], x[3], x[4], x[5], x[6], x[7], 1];
+    }
+    function mapCoordinate(x, y) { let m = transformMatrix, d = m[6]*x + m[7]*y + m[8]; return { x: (m[0]*x + m[1]*y + m[2])/d, y: (m[3]*x + m[4]*y + m[5])/d }; }
+
+    // --- ZIP EXPORT ---
+    async function exportSuperZIP() {
+        if(records.length === 0) return alert("No records to export.");
+        let zip = new JSZip();
+        let eName = document.getElementById('examName').value.replace(/[^a-zA-Z0-9]/g, '_');
+        let qCount = records[0].max;
+        let totalStus = records.length;
+        let imgFolder = zip.folder("Marked_Sheets");
+
+        // 1. Generate Stamped Images
+        for(let r of records) {
+            await new Promise(resolve => {
+                let img = new Image();
+                img.onload = () => {
+                    canvas.width = img.width; canvas.height = img.height;
+                    ctx.drawImage(img, 0, 0);
+                    drawSystemStamp(ctx, r.class, r.no, r.score, r.max, r.rank, totalStus, r.matrix, r.vScale);
+                    let finalImg = canvas.toDataURL("image/jpeg", 0.7);
+                    imgFolder.file(`Class${r.class}_No${r.no}_Score${r.score}.jpg`, finalImg.split(',')[1], {base64: true});
+                    resolve();
+                };
+                img.src = r.unmarkedImg; 
+            });
+        }
+
+        // 2. Generate CSV
+        let csv = "Exam Name,Class,Class No.,Rank,Correct,Incorrect,Missing,Score,";
+        for(let i=1; i<=qCount; i++) csv += `Q${i},`; csv += "\n";
+        records.forEach(r => {
+            csv += `${eName},${r.class},${r.no},${r.rank}/${totalStus},${r.correct},${r.incorrect},${r.missing},${r.score}/${r.max},`;
+            r.details.forEach(d => {
+                if(d.status === "Correct") csv += `${d.ans}✓,`;
+                else if(d.status === "Missing") csv += `-,`;
+                else csv += `${d.ans}x${d.key},`;
+            });
+            csv += "\n";
+        });
+        zip.file(`${eName}_Scores.csv`, "\ufeff"+csv);
+
+        // 3. HTML Student Report
+        let rHtml = `<html><head><meta charset="utf-8"><style>body{font-family:Arial;} table{border-collapse:collapse;width:100%;margin-bottom:40px;font-size:13px;text-align:center;} th,td{border:1px solid black;padding:4px;} .h{background-color:#f2f2f2;font-weight:bold;} .c-ans{width:3%;}</style></head><body><h2 style="text-align:center;">Student Score Reports</h2>`;
+        records.forEach(r => {
+            rHtml += `<table>`; let blocks = Math.ceil(qCount / 20); 
+            for(let b=0; b<blocks; b++) {
+                let startQ = b * 20; let endQ = Math.min(startQ + 20, qCount);
+                rHtml += `<tr>`;
+                if(b===0) rHtml += `<td colspan="2" class="h">Exam name</td><td colspan="2">${eName}</td>`;
+                else if(b===1) rHtml += `<td colspan="2" class="h">Class no.</td><td colspan="2">${r.no}</td>`;
+                else rHtml += `<td colspan="4"></td>`;
+                rHtml += `<td class="h">Correct</td><td>${r.correct}</td>`;
+                for(let i=startQ; i<endQ; i++) rHtml += `<td class="h c-ans">Q${i+1}</td>`;
+                rHtml += `</tr><tr>`;
+                if(b===0) rHtml += `<td colspan="2" class="h">Class</td><td colspan="2">${r.class}</td>`;
+                else if(b===1) rHtml += `<td colspan="2" class="h">Rank</td><td colspan="2">${r.rank}/${totalStus}</td>`;
+                else rHtml += `<td colspan="4"></td>`;
+                rHtml += `<td class="h">Incorrect</td><td>${r.incorrect}</td>`;
+                for(let i=startQ; i<endQ; i++) {
+                    let d = r.details[i]; let text = d.status === "Correct" ? `${d.ans}✓` : (d.status==="Missing" ? "-" : `${d.ans}x${d.key}`);
+                    rHtml += `<td>${text}</td>`;
+                }
+                rHtml += `</tr>`;
+                if(b===0) {
+                    rHtml += `<tr><td colspan="2" class="h">Class no.</td><td colspan="2">${r.no}</td><td class="h">Missing</td><td>${r.missing}</td><td colspan="${endQ-startQ}"></td></tr>`;
+                    rHtml += `<tr><td colspan="2" class="h">Rank</td><td colspan="2">${r.rank}/${totalStus}</td><td class="h">Score</td><td>${r.score}/${r.max}</td><td colspan="${endQ-startQ}"></td></tr>`;
+                }
+            }
+            rHtml += `</table>`;
+        });
+        rHtml += `</body></html>`;
+        zip.file(`${eName}_Student_Reports.html`, rHtml);
+
+        // 4. HTML Teacher Analytics
+        let scores = records.map(r => r.score); 
+        let meanS = (scores.reduce((a,b)=>a+b, 0) / totalStus).toFixed(2);
+        let itemAna = [];
+        for(let i=0; i<qCount; i++) {
+            let key = records[0].details[i].key; let counts = { 'A':0, 'B':0, 'C':0, 'D':0, 'Missing':0, 'Correct':0 };
+            records.forEach(r => { let ans = r.details[i].ans; if(ans === "") counts['Missing']++; else counts[ans]++; if(r.details[i].status === "Correct") counts['Correct']++; });
+            itemAna.push({ q: i+1, key: key, c: counts });
+        }
+        let aHtml = `<html><head><meta charset="utf-8"><style>body{font-family:sans-serif;padding:20px;} table{border-collapse:collapse;width:100%;text-align:center;} th,td{border:1px solid #ccc;padding:10px;} th{background-color:#eee;} .bad{color:red;font-weight:bold;}</style></head><body><h1>Teacher Analytics</h1><p>Mean: ${meanS} | Total Students: ${totalStus}</p><table><tr><th>Q.</th><th>Key</th><th>Correct %</th><th>A %</th><th>B %</th><th>C %</th><th>D %</th><th>Missing %</th></tr>`;
+        itemAna.forEach(item => {
+            let cp = ((item.c.Correct / totalStus)*100).toFixed(1);
+            aHtml += `<tr><td><b>${item.q}</b></td><td>${item.key}</td><td ${cp < 40 ? `class="bad"` : ""}>${cp}%</td>
+                <td>${((item.c['A'] / totalStus)*100).toFixed(1)}%</td><td>${((item.c['B'] / totalStus)*100).toFixed(1)}%</td>
+                <td>${((item.c['C'] / totalStus)*100).toFixed(1)}%</td><td>${((item.c['D'] / totalStus)*100).toFixed(1)}%</td>
+                <td>${((item.c['Missing'] / totalStus)*100).toFixed(1)}%</td></tr>`;
+        });
+        aHtml += `</table></body></html>`;
+        zip.file(`${eName}_Teacher_Analytics.html`, aHtml);
+
+        // 5. Download ZIP
+        zip.generateAsync({type:"blob"}).then(function(content) {
+            let a = document.createElement("a"); a.href = URL.createObjectURL(content);
+            a.download = `${eName}_Full_Export.zip`; a.click();
+        });
+    }
+
+    function restartSystem() {
+        if(confirm("Clear all data and start a new exam?")) {
+            records = [];
+            currentKeyArray = [];
+            document.getElementById('recordBody').innerHTML = '';
+            document.getElementById('progressBox').style.display = 'none';
+            document.getElementById('errorLog').style.display = 'none';
+            document.getElementById('btnStep3Next').disabled = true;
+            goToStep(1);
+        }
+    }
+
+</script>
+</body>
+</html>
